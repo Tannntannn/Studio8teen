@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
 import { CANCELLATION_FEE } from "../lib/constants";
+import { createNotification } from "./notifications";
 async function getCurrentUserId() {
   const {
     data: { user },
@@ -162,7 +163,7 @@ export async function cancelBookingFree(id, reason = "Cancelled by client before
 export async function rejectBooking(id, note = "Booking rejected by admin") {
   const { data: booking, error: fetchError } = await supabase
     .from("bookings")
-    .select("event_date, time_slot, payments(id, status)")
+    .select("client_id, event_date, time_slot, payments(id, status)")
     .eq("id", id)
     .maybeSingle();
   if (fetchError) throw fetchError;
@@ -183,6 +184,16 @@ export async function rejectBooking(id, note = "Booking rejected by admin") {
   if (error) throw error;
 
   await releaseBookingSlot(booking.event_date, booking.time_slot);
+
+  try {
+    await createNotification(
+      booking.client_id,
+      "booking",
+      `Your booking was rejected by the studio. Reason: ${note}`
+    );
+  } catch {
+    // DB trigger may have already created the notification
+  }
 }
 
 export async function getClientBookings(clientId) {

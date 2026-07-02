@@ -8,9 +8,18 @@ import { useState } from "react";
 function authErrorMessage(err) {
   if (!err) return "Unknown error";
   if (typeof err === "string") return err;
+  const status = err.status || err.statusCode;
   const message = err.message || err.msg || err.error_description || err.error || JSON.stringify(err);
-  if (message.toLowerCase().includes("rate limit")) {
+  const lower = message.toLowerCase();
+
+  if (status === 504 || lower.includes("504") || lower.includes("gateway timeout")) {
+    return "Registration timed out while sending the confirmation email. Your account may still have been created — check your inbox and spam folder. If no email arrives, configure Custom SMTP (Resend) in Supabase → Authentication → SMTP, or temporarily disable email confirmation for testing.";
+  }
+  if (lower.includes("rate limit")) {
     return "Too many signup emails were sent. Wait about an hour, or connect Resend SMTP in Supabase Auth settings.";
+  }
+  if (lower.includes("database error saving new user")) {
+    return "Account could not be saved. Run supabase/migrations/20260101000002_fix_signup_trigger.sql in the Supabase SQL Editor.";
   }
   return message;
 }

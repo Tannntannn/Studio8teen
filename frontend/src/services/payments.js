@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { createNotification } from "./notifications";
 
 export async function createPayment(payment) {
   const { data, error } = await supabase.from("payments").insert(payment).select().single();
@@ -30,7 +31,7 @@ export async function verifyPayment(paymentId, bookingId, adminId) {
   return qrToken;
 }
 
-export async function rejectPayment(paymentId, note) {
+export async function rejectPayment(paymentId, note, clientId = null) {
   const { data, error } = await supabase
     .from("payments")
     .update({ status: "rejected", rejection_note: note })
@@ -38,6 +39,19 @@ export async function rejectPayment(paymentId, note) {
     .select()
     .single();
   if (error) throw error;
+
+  if (clientId) {
+    try {
+      await createNotification(
+        clientId,
+        "payment",
+        `Payment proof rejected. Reason: ${note || "Please re-upload your payment proof."}`
+      );
+    } catch {
+      // DB trigger may have already created the notification
+    }
+  }
+
   return data;
 }
 

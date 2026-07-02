@@ -262,7 +262,14 @@ export default function BookingDetail() {
           )}
 
           {booking.status === "cancelled" && (
-            <p className="text-sm text-gray-500 text-center">This booking has been cancelled. No refund applies.</p>
+            <div className="text-center space-y-2">
+              <p className="text-sm text-gray-500">This booking has been cancelled. No refund applies.</p>
+              {booking.notes && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 max-w-md mx-auto">
+                  <span className="font-medium">Studio reason:</span> {booking.notes}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

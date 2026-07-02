@@ -1,5 +1,14 @@
 import { supabase } from "../lib/supabase";
 
+export async function createNotification(userId, type, message) {
+  const { error } = await supabase.from("notifications").insert({
+    user_id: userId,
+    type,
+    message,
+  });
+  if (error) throw error;
+}
+
 export async function getMyNotifications() {
   const { data, error } = await supabase
     .from("notifications")

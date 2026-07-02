@@ -63,7 +63,7 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw error;
-    await supabase.auth.signOut();
+    void supabase.auth.signOut();
     return data;
   };
 

@@ -17,6 +17,7 @@ const TYPE_STYLES = {
   success: "bg-green-50 border-green-100 text-green-800",
   warning: "bg-amber-50 border-amber-100 text-amber-800",
   payment: "bg-[#A98B75]/10 border-[#A98B75]/30 text-[#5B4636]",
+  booking: "bg-red-50 border-red-100 text-red-800",
 };
 
 export default function Notifications() {

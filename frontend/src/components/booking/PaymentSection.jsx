@@ -114,7 +114,16 @@ export default function PaymentSection({ booking, onUpdate }) {
   };
 
   if (booking.status === "cancelled") {
-    return <p className="text-gray-500">This booking was cancelled.</p>;
+    return (
+      <div className="space-y-3">
+        <p className="text-gray-500">This booking was cancelled.</p>
+        {booking.notes && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <span className="font-medium">Reason:</span> {booking.notes}
+          </p>
+        )}
+      </div>
+    );
   }
 
   if (booking.status === "confirmed" || booking.status === "completed") {
@@ -162,6 +171,11 @@ export default function PaymentSection({ booking, onUpdate }) {
           <span className={`font-medium ${payment.status === "rejected" ? "text-red-600" : "text-[#A98B75]"}`}>
             {STATUS_LABELS[payment.status] || payment.status}
           </span>
+          {payment.status === "rejected" && payment.rejection_note && (
+            <p className="mt-2 text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              <span className="font-medium">Admin reason:</span> {payment.rejection_note}
+            </p>
+          )}
         </div>
       )}
 

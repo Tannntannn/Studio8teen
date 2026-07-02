@@ -110,9 +110,21 @@ export default function AdminBookingDetail() {
 
   const handleRejectProof = async () => {
     if (!payment) return;
+    const { value: note, isConfirmed } = await Swal.fire({
+      title: "Reject payment proof?",
+      text: "The client will need to upload a new proof.",
+      input: "text",
+      inputPlaceholder: "Reason for rejection",
+      showCancelButton: true,
+      confirmButtonText: "Reject proof",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!isConfirmed) return;
+    const reason = note?.trim() || "Payment proof rejected by admin";
     try {
-      await rejectPayment(payment.id, "Payment proof rejected by admin");
+      await rejectPayment(payment.id, reason, booking.client_id);
       await updateBooking(id, { status: "awaiting_payment" });
+      Swal.fire({ icon: "success", title: "Proof rejected", timer: 2000, showConfirmButton: false });
       load();
     } catch (err) {
       setError(err.message);
