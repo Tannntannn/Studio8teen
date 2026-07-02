@@ -1,8 +1,21 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../../lib/supabase";
 import AuthShell from "../../components/layout/AuthShell";
 import Swal from "sweetalert2";
+
+async function readFunctionError(error) {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const body = await error.context.json();
+      return body?.error || error.message;
+    } catch {
+      /* ignore */
+    }
+  }
+  return error?.message || "Could not send reset email.";
+}
 
 function ForgotPass() {
   const [email, setEmail] = useState("");
@@ -12,11 +25,15 @@ function ForgotPass() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/login`,
+      const { data, error } = await supabase.functions.invoke("forgot-password", {
+        body: {
+          email,
+          redirectTo: `${window.location.origin}/reset-password`,
+        },
       });
-      if (error) throw error;
-      Swal.fire({ icon: "success", title: "Check your email", text: "We sent a password reset link." });
+      if (error) throw new Error(await readFunctionError(error));
+      if (data?.ok === false) throw new Error(data.error || "Could not send reset email.");
+      Swal.fire({ icon: "success", title: "Check your email", text: "We sent a password reset link via email." });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Request failed", text: err.message });
     } finally {

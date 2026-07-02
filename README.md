@@ -39,6 +39,23 @@ npm run dev
 2. Add env vars from `.env.example`
 3. Deploy — `vercel.json` handles SPA routing
 
+### 5. Forgot Password Email (Resend)
+
+1. Create a Resend API key
+2. Replace `re_xxxxxxxxx` with your real API key
+3. Set Supabase secrets:
+
+```bash
+supabase secrets set RESEND_API_KEY=re_xxxxxxxxx
+supabase secrets set RESEND_FROM_EMAIL=onboarding@resend.dev
+```
+
+4. Deploy the function:
+
+```bash
+supabase functions deploy forgot-password
+```
+
 ## Features
 
 - Online booking with calendar & availability heatmap
