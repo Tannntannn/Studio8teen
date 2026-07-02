@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { getStudioSettings } from "../../services/settings";
-import { submitCancellationFeeProof } from "../../services/bookings";
+import { saveCancellationFeeProof, confirmCancellationFeeProof } from "../../services/bookings";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS } from "../../lib/cloudinary";
 import { CANCELLATION_FEE } from "../../lib/constants";
 import Swal from "sweetalert2";
 
 const FEE_STATUS_LABELS = {
-  awaiting: "Awaiting fee payment",
+  awaiting: "Proof saved — confirm submission below",
   submitted: "Pending admin verification",
   verified: "Fee verified — cancellation approved",
   rejected: "Proof rejected — please re-upload",
@@ -15,10 +15,20 @@ const FEE_STATUS_LABELS = {
 export default function CancellationFeeSection({ booking, cancellation, onUpdate }) {
   const [settings, setSettings] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [pendingProofUrl, setPendingProofUrl] = useState(null);
 
   useEffect(() => {
     getStudioSettings().then(setSettings).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (cancellation?.fee_proof_url && cancellation.fee_status === "awaiting") {
+      setPendingProofUrl(cancellation.fee_proof_url);
+    } else if (cancellation?.fee_status !== "awaiting") {
+      setPendingProofUrl(null);
+    }
+  }, [cancellation]);
 
   if (!cancellation) return null;
 
@@ -26,6 +36,11 @@ export default function CancellationFeeSection({ booking, cancellation, onUpdate
   const canUpload =
     booking.status === "cancellation_pending" ||
     (booking.status === "cancellation_submitted" && cancellation.fee_status === "rejected");
+
+  const awaitingConfirm =
+    booking.status === "cancellation_pending" &&
+    cancellation.fee_status === "awaiting" &&
+    (pendingProofUrl || cancellation.fee_proof_url);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -37,12 +52,13 @@ export default function CancellationFeeSection({ booking, cancellation, onUpdate
         file,
         CLOUDINARY_FOLDERS.cancellationProof(booking.id)
       );
-      await submitCancellationFeeProof(booking.id, cancellation.id, url, publicId);
+      await saveCancellationFeeProof(booking.id, cancellation.id, url, publicId);
+      setPendingProofUrl(url);
       Swal.fire({
-        icon: "success",
-        title: "Fee proof uploaded",
-        text: "Your cancellation is on hold until the studio verifies your payment.",
-        timer: 2800,
+        icon: "info",
+        title: "Proof uploaded",
+        text: "Review your proof, then click Confirm Cancellation Fee to submit for admin verification.",
+        timer: 3000,
         showConfirmButton: false,
       });
       onUpdate?.();
@@ -50,6 +66,31 @@ export default function CancellationFeeSection({ booking, cancellation, onUpdate
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
     } finally {
       setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!pendingProofUrl && !cancellation.fee_proof_url) {
+      Swal.fire({ icon: "warning", title: "Upload your payment proof first" });
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      await confirmCancellationFeeProof(booking.id, cancellation.id);
+      Swal.fire({
+        icon: "success",
+        title: "Cancellation fee submitted",
+        text: "The studio will verify your payment before approving the cancellation.",
+        timer: 2800,
+        showConfirmButton: false,
+      });
+      onUpdate?.();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Submission failed", text: err.message });
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -59,7 +100,7 @@ export default function CancellationFeeSection({ booking, cancellation, onUpdate
         <h3 className="font-semibold text-[#5B4636] mb-2">Cancellation Fee</h3>
         <p className="text-sm text-gray-500">
           A non-refundable cancellation fee of <strong className="text-[#5B4636]">₱{feeAmount.toLocaleString()}</strong> is
-          required. Upload your payment screenshot below — your booking stays active until the studio verifies the fee.
+          required. Upload your payment screenshot, then confirm submission below.
         </p>
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mt-3">
           No refund will be issued for downpayments or prior payments once cancellation is approved.
@@ -110,15 +151,31 @@ export default function CancellationFeeSection({ booking, cancellation, onUpdate
         </div>
       )}
 
-      {cancellation.fee_proof_url && (
+      {(pendingProofUrl || cancellation.fee_proof_url) && cancellation.fee_status !== "verified" && (
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Submitted proof</p>
+          <p className="text-sm font-medium text-gray-700 mb-2">Payment proof preview</p>
           <img
-            src={cancellation.fee_proof_url}
+            src={pendingProofUrl || cancellation.fee_proof_url}
             alt="Cancellation fee proof"
             className="max-w-xs rounded-xl border border-[#E8E1DA]"
           />
         </div>
+      )}
+
+      {awaitingConfirm && (
+        <>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={confirming}
+            className="w-full py-3 rounded-xl bg-[#5B4636] text-white font-semibold hover:bg-[#4a3829] disabled:opacity-50"
+          >
+            {confirming ? "Submitting..." : "Confirm Cancellation Fee"}
+          </button>
+          <p className="text-xs text-gray-500 text-center">
+            You can re-upload a different proof before confirming.
+          </p>
+        </>
       )}
 
       {booking.status === "cancellation_submitted" && cancellation.fee_status === "submitted" && (

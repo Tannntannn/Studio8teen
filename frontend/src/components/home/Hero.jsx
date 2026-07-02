@@ -16,7 +16,7 @@ const images = [hero1, hero2, hero3, hero4, hero5];
 
 function Hero() {
   return (
-    <section id="home" className="relative h-[90vh] scroll-mt-20">
+    <section id="home" className="relative min-h-[min(520px,85svh)] h-auto md:h-[90vh] scroll-mt-20 overflow-hidden bg-[#1a1410]">
 
       <Swiper
         modules={[Autoplay, Pagination, EffectFade]}
@@ -28,26 +28,25 @@ function Hero() {
         speed={1500}
         loop={true}
         pagination={{ clickable: true }}
-        className="h-full hero-swiper"
+        className="hero-swiper w-full h-[min(420px,58svh)] md:absolute md:inset-0 md:h-full"
       >
         {images.map((image, index) => (
           <SwiperSlide key={index}>
-            <div className="relative h-full">
+            <div className="relative h-full w-full flex items-center justify-center bg-[#1a1410]">
               <img
                 src={image}
                 alt={`Slide ${index + 1}`}
-                className="w-full h-full object-cover object-center"
+                className="hero-slide-image w-full h-full object-contain md:object-cover object-center"
               />
-              {/* Gradient overlays for readability */}
-              <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/35 to-black/20" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/65 via-black/40 to-black/25 md:from-black/60 md:via-black/35 md:to-black/20 pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 pointer-events-none" />
             </div>
           </SwiperSlide>
         ))}
       </Swiper>
 
       {/* Hero Content */}
-      <div className="absolute inset-0 z-10 flex items-center">
+      <div className="relative z-10 md:absolute md:inset-0 flex items-center py-10 md:py-0">
         <div className="max-w-7xl mx-auto px-6 w-full">
 
           <div className="max-w-2xl text-white">
@@ -61,7 +60,7 @@ function Hero() {
             </span>
 
             <h1 className="
-              hero-animate-delay-1 heading-serif mt-8
+              hero-animate-delay-1 heading-serif mt-4 md:mt-8
               text-3xl sm:text-5xl md:text-7xl
               font-bold leading-[1.1] tracking-tight
             ">
@@ -81,7 +80,7 @@ function Hero() {
               and event coverage—all in one place.
             </p>
 
-            <div className="hero-animate-delay-3 mt-10 flex flex-wrap gap-4">
+            <div className="hero-animate-delay-3 mt-6 md:mt-10 flex flex-wrap gap-4">
 
               <Link
                 to="/client-portfolio"

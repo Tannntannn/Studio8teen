@@ -110,7 +110,17 @@ body {
 
 /* ===== Swiper Pagination Customisation ===== */
 .hero-swiper .swiper-pagination {
-  bottom: 30px !important;
+  bottom: 12px !important;
+}
+
+@media (min-width: 768px) {
+  .hero-swiper .swiper-pagination {
+    bottom: 30px !important;
+  }
+}
+
+.hero-slide-image {
+  max-height: 100%;
 }
 
 .hero-swiper .swiper-pagination-bullet {

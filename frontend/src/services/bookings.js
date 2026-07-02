@@ -199,14 +199,22 @@ export async function getClientBookings(clientId) {
   return data || [];
 }
 
-export async function submitCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {
-  const { error: cancelError } = await supabase
+export async function saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {
+  const { error } = await supabase
     .from("cancellations")
     .update({
       fee_proof_url: proofUrl,
       fee_proof_public_id: publicId,
-      fee_status: "submitted",
+      fee_status: "awaiting",
     })
+    .eq("id", cancellationId);
+  if (error) throw error;
+}
+
+export async function confirmCancellationFeeProof(bookingId, cancellationId) {
+  const { error: cancelError } = await supabase
+    .from("cancellations")
+    .update({ fee_status: "submitted" })
     .eq("id", cancellationId);
   if (cancelError) throw cancelError;
 
@@ -215,6 +223,12 @@ export async function submitCancellationFeeProof(bookingId, cancellationId, proo
     .update({ status: "cancellation_submitted" })
     .eq("id", bookingId);
   if (bookingError) throw bookingError;
+}
+
+/** @deprecated Use saveCancellationFeeProof + confirmCancellationFeeProof */
+export async function submitCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {
+  await saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId);
+  await confirmCancellationFeeProof(bookingId, cancellationId);
 }
 
 export async function deleteBooking(id) {
