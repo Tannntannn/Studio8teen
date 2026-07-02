@@ -42,11 +42,11 @@ function Packages() {
         </ScrollReveal>
 
         <ScrollReveal delay={200}>
-          <div className="grid gap-5 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+          <div className="flex gap-5 overflow-x-auto pb-4 snap-x snap-mandatory sm:grid sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 sm:overflow-visible sm:pb-0">
             {packages.map((pkg) => (
               <div
                 key={pkg.id}
-                className={`relative bg-white rounded-2xl p-6 transition-all duration-500 hover:-translate-y-2 ${
+                className={`relative flex-shrink-0 w-[85vw] max-w-[320px] snap-center sm:w-auto sm:max-w-none bg-white rounded-2xl p-6 transition-all duration-500 hover:-translate-y-2 ${
                   pkg.is_popular ? "shadow-xl ring-2 ring-[#A98B75] xl:scale-105" : "shadow-sm hover:shadow-xl"
                 }`}
               >

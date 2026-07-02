@@ -1,4 +1,6 @@
 import { FaLightbulb, FaPalette, FaTshirt, FaCube, FaSun, FaMagic, FaCamera, FaMapMarkerAlt, FaSmile, FaTags } from "react-icons/fa";
+import { useState } from "react";
+import ImageLightbox from "../ui/ImageLightbox";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { asColorArray, asStringArray } from "../../services/moodBoardThemes";
 
@@ -66,6 +68,7 @@ function Attribute({ icon: Icon, label, value }) {
 }
 
 export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAggregated }) {
+  const [lightboxIndex, setLightboxIndex] = useState(null);
   const images = theme.inspiration_images || [];
   const tags = asStringArray(theme.tags);
   const sourceThemes = asStringArray(theme.source_theme_names);
@@ -81,6 +84,7 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
     theme.location_type;
 
   return (
+    <>
     <div className="space-y-6 animate-[pageFadeIn_0.35s_ease-out]">
       <div className="bg-gradient-to-br from-[#5B4636] to-[#A98B75] rounded-2xl p-6 md:p-8 text-white text-center">
         <p className="text-white/70 text-sm uppercase tracking-wider mb-1">
@@ -141,10 +145,12 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
             </p>
           )}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {images.map((img) => (
-              <div
+            {images.map((img, index) => (
+              <button
                 key={img.id}
-                className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all group"
+                type="button"
+                onClick={() => setLightboxIndex(index)}
+                className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all group text-left"
               >
                 <img
                   src={getThumbnailUrl(img.url, 400, 400)}
@@ -157,7 +163,7 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
                     {img.themeName}
                   </span>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -203,5 +209,13 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
         </div>
       )}
     </div>
+
+    <ImageLightbox
+      images={images.map((img) => ({ url: img.url, caption: img.caption || img.themeName }))}
+      index={lightboxIndex}
+      onClose={() => setLightboxIndex(null)}
+      onNavigate={setLightboxIndex}
+    />
+    </>
   );
 }

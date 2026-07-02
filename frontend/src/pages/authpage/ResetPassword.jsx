@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import AuthShell from "../../components/layout/AuthShell";
+import PasswordInput from "../../components/ui/PasswordInput";
 import { supabase } from "../../lib/supabase";
 
 function ResetPassword() {
@@ -88,24 +89,20 @@ function ResetPassword() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700">New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
             />
           </div>
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700">Confirm Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               minLength={6}
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
             />
           </div>
           <button

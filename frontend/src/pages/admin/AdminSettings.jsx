@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
-import { FaCog, FaQrcode, FaPercent, FaFileAlt } from "react-icons/fa";
+import { FaCog, FaQrcode, FaPercent, FaFileAlt, FaUser, FaLock } from "react-icons/fa";
 import AdminLayout from "../../components/layout/AdminLayout";
+import PasswordInput from "../../components/ui/PasswordInput";
+import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../lib/supabase";
 import { getStudioSettings, updateStudioSettings } from "../../services/settings";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS } from "../../lib/cloudinary";
 import Swal from "sweetalert2";
 
 export default function AdminSettings() {
+  const { user, profile } = useAuth();
   const [settings, setSettings] = useState(null);
   const [downpayment, setDownpayment] = useState(50);
   const [instructions, setInstructions] = useState("");
   const [saving, setSaving] = useState(false);
+  const [email, setEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
+    setEmail(user?.email || profile?.email || "");
     getStudioSettings().then((s) => {
       setSettings(s);
       setDownpayment(s.downpayment_percent || 50);
@@ -29,6 +37,27 @@ export default function AdminSettings() {
       Swal.fire({ icon: "success", title: "Payment QR updated", timer: 1500, showConfirmButton: false });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
+    }
+  };
+
+  const saveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const updates = {};
+      if (email && email !== user?.email) updates.email = email;
+      if (newPassword) updates.password = newPassword;
+      if (!Object.keys(updates).length) {
+        Swal.fire({ icon: "info", title: "No changes to save" });
+        return;
+      }
+      const { error } = await supabase.auth.updateUser(updates);
+      if (error) throw error;
+      setNewPassword("");
+      Swal.fire({ icon: "success", title: "Profile updated", timer: 1800, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Update failed", text: err.message });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -57,6 +86,41 @@ export default function AdminSettings() {
         </div>
 
         <div className="bg-white rounded-2xl border border-[#E8E1DA] p-8 shadow-sm space-y-8">
+          <section>
+            <h3 className="flex items-center justify-center gap-2 font-semibold text-[#5B4636] mb-4">
+              <FaUser className="text-[#A98B75]" /> Admin Profile
+            </h3>
+            <div className="space-y-4 max-w-md mx-auto">
+              <div>
+                <label className="block text-sm font-medium mb-2">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+                  <FaLock size={12} /> New password
+                </label>
+                <PasswordInput
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Leave blank to keep current password"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={saveProfile}
+                disabled={savingProfile}
+                className="w-full py-3 rounded-xl border border-[#A98B75] text-[#A98B75] font-medium hover:bg-[#A98B75]/10 disabled:opacity-50"
+              >
+                {savingProfile ? "Saving..." : "Save profile"}
+              </button>
+            </div>
+          </section>
+
           <section className="text-center">
             <h3 className="flex items-center justify-center gap-2 font-semibold text-[#5B4636] mb-4">
               <FaQrcode className="text-[#A98B75]" /> Payment QR (GCash / Bank)

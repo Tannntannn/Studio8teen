@@ -78,6 +78,13 @@ body {
   transform: translateY(0);
 }
 
+@media (max-width: 768px) {
+  .scroll-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ===== Card Top-Accent Line (gradient reveal on hover) ===== */
 .card-accent {
   position: relative;

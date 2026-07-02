@@ -21,14 +21,30 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const isEmailConfirmed = (authUser) =>
+    Boolean(authUser?.email_confirmed_at || authUser?.confirmed_at);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user && !isEmailConfirmed(session.user)) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user && !isEmailConfirmed(session.user)) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setProfile(null);
+        return;
+      }
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else setProfile(null);
@@ -41,15 +57,23 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, role: "client" } },
+      options: {
+        data: { full_name: fullName, role: "client" },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     });
     if (error) throw error;
+    await supabase.auth.signOut();
     return data;
   };
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (data.user && !isEmailConfirmed(data.user)) {
+      await supabase.auth.signOut();
+      throw new Error("Please confirm your email before logging in.");
+    }
     if (data.user) await fetchProfile(data.user.id);
     return data;
   };

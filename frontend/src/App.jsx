@@ -28,6 +28,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminBookings from "./pages/admin/AdminBookings";
 import AdminBookingDetail from "./pages/admin/AdminBookingDetail";
 import AdminClients from "./pages/admin/AdminClients";
+import AdminClientDetail from "./pages/admin/AdminClientDetail";
 import AdminPackages from "./pages/admin/AdminPackages";
 import AdminPortfolio from "./pages/admin/AdminPortfolio";
 import AdminClientGalleries from "./pages/admin/AdminClientGalleries";
@@ -84,6 +85,7 @@ function AppRoutes() {
         <Route path="/admin/bookings" element={<ProtectedRoute role="admin"><AdminBookings /></ProtectedRoute>} />
         <Route path="/admin/bookings/:id" element={<ProtectedRoute role="admin"><AdminBookingDetail /></ProtectedRoute>} />
         <Route path="/admin/clients" element={<ProtectedRoute role="admin"><AdminClients /></ProtectedRoute>} />
+        <Route path="/admin/clients/:id" element={<ProtectedRoute role="admin"><AdminClientDetail /></ProtectedRoute>} />
         <Route path="/admin/packages" element={<ProtectedRoute role="admin"><AdminPackages /></ProtectedRoute>} />
         <Route path="/admin/portfolio" element={<ProtectedRoute role="admin"><AdminPortfolio /></ProtectedRoute>} />
         <Route path="/admin/client-galleries" element={<ProtectedRoute role="admin"><AdminClientGalleries /></ProtectedRoute>} />

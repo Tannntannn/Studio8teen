@@ -1,6 +1,16 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
 import { CANCELLATION_FEE } from "../lib/constants";
+async function getCurrentUserId() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  if (error) throw error;
+  if (!user) throw new Error("You must be logged in.");
+  return user.id;
+}
+
 
 async function attachProfiles(bookings) {
   if (!bookings?.length) return bookings || [];
@@ -23,9 +33,11 @@ async function attachProfiles(bookings) {
 }
 
 export async function getMyBookings() {
+  const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("bookings")
     .select("*, packages(name, price), payments(*)")
+    .eq("client_id", userId)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
@@ -108,6 +120,79 @@ export async function requestCancellation(id, reason, feeAmount = CANCELLATION_F
 /** @deprecated Use requestCancellation */
 export async function cancelBooking(id, reason, feeAmount = CANCELLATION_FEE) {
   return requestCancellation(id, reason, feeAmount);
+}
+
+async function releaseBookingSlot(eventDate, timeSlot) {
+  if (!eventDate || !timeSlot) return;
+  const { data: slot } = await supabase
+    .from("studio_availability")
+    .select("id, booked_count")
+    .eq("avail_date", eventDate)
+    .eq("time_slot", timeSlot)
+    .maybeSingle();
+
+  if (slot && slot.booked_count > 0) {
+    await supabase
+      .from("studio_availability")
+      .update({ booked_count: slot.booked_count - 1 })
+      .eq("id", slot.id);
+  }
+}
+
+/** Cancel before admin approval — no fee required. */
+export async function cancelBookingFree(id, reason = "Cancelled by client before approval") {
+  const { data: booking, error: fetchError } = await supabase
+    .from("bookings")
+    .select("event_date, time_slot, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking) throw new Error("Booking not found");
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "cancelled", notes: reason, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+
+  await releaseBookingSlot(booking.event_date, booking.time_slot);
+}
+
+/** Admin rejects a booking entirely. */
+export async function rejectBooking(id, note = "Booking rejected by admin") {
+  const { data: booking, error: fetchError } = await supabase
+    .from("bookings")
+    .select("event_date, time_slot, payments(id, status)")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking) throw new Error("Booking not found");
+
+  const payment = booking.payments?.[0];
+  if (payment && payment.status === "submitted") {
+    await supabase
+      .from("payments")
+      .update({ status: "rejected", rejection_note: note })
+      .eq("id", payment.id);
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "cancelled", notes: note, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+
+  await releaseBookingSlot(booking.event_date, booking.time_slot);
+}
+
+export async function getClientBookings(clientId) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*, packages(name, price), payments(*)")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
 }
 
 export async function submitCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {

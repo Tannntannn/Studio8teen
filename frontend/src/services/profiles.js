@@ -63,28 +63,59 @@ export async function getFaqEntries() {
 
 export async function searchFaq(query) {
   const entries = await getFaqEntries();
-  const q = query.toLowerCase();
-  const words = q.split(/\s+/).filter(Boolean);
+  const q = query.toLowerCase().trim();
+  const words = q.split(/\s+/).filter((w) => w.length > 2);
+
+  const synonyms = {
+    book: ["booking", "book", "schedule", "reserve", "appointment"],
+    pay: ["payment", "pay", "gcash", "downpayment", "deposit", "proof"],
+    cancel: ["cancel", "cancellation", "refund"],
+    photo: ["photo", "photos", "gallery", "portfolio", "pictures", "images"],
+    hour: ["hour", "hours", "open", "time", "schedule"],
+    price: ["price", "cost", "package", "rate", "fee"],
+    mood: ["mood", "theme", "board", "inspiration"],
+    pose: ["pose", "poses", "posing"],
+    deliver: ["delivery", "deliver", "turnaround", "ready"],
+  };
+
+  const expandedWords = new Set(words);
+  for (const word of words) {
+    for (const [key, list] of Object.entries(synonyms)) {
+      if (list.some((s) => word.includes(s) || s.includes(word))) {
+        expandedWords.add(key);
+        list.forEach((s) => expandedWords.add(s));
+      }
+    }
+  }
 
   let best = null;
   let bestScore = 0;
 
   for (const entry of entries) {
+    const question = entry.question.toLowerCase();
+    const answer = entry.answer.toLowerCase();
+    const keywords = (entry.keywords || []).map((k) => k.toLowerCase());
+    const blob = `${question} ${answer} ${keywords.join(" ")}`;
     let score = 0;
-    for (const word of words) {
-      if (entry.question.toLowerCase().includes(word)) score += 2;
-      if (entry.answer.toLowerCase().includes(word)) score += 1;
-      if (entry.keywords?.some((k) => k.includes(word) || word.includes(k))) score += 3;
+
+    if (blob.includes(q)) score += 12;
+    if (question.includes(q) || q.includes(question.slice(0, 20))) score += 8;
+
+    for (const word of expandedWords) {
+      if (question.includes(word)) score += 3;
+      if (answer.includes(word)) score += 2;
+      if (keywords.some((k) => k.includes(word) || word.includes(k))) score += 5;
     }
+
     if (score > bestScore) {
       bestScore = score;
       best = entry;
     }
   }
 
-  if (bestScore === 0) {
+  if (!best || bestScore < 4) {
     return {
-      answer: "I'm not sure about that. Please contact us through the Contact section or call Studio 8Teen directly for assistance.",
+      answer: "I'm not sure about that. Please contact us through the Contact section or email studiobook12@gmail.com for assistance.",
       matched: false,
     };
   }

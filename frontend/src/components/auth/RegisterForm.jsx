@@ -1,13 +1,18 @@
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import PasswordInput from "../ui/PasswordInput";
 import Swal from "sweetalert2";
 import { useState } from "react";
 
 function authErrorMessage(err) {
   if (!err) return "Unknown error";
   if (typeof err === "string") return err;
-  return err.message || err.msg || err.error_description || err.error || JSON.stringify(err);
+  const message = err.message || err.msg || err.error_description || err.error || JSON.stringify(err);
+  if (message.toLowerCase().includes("rate limit")) {
+    return "Too many signup emails were sent. Wait about an hour, or connect Resend SMTP in Supabase Auth settings.";
+  }
+  return message;
 }
 
 function RegisterForm() {
@@ -59,25 +64,21 @@ function RegisterForm() {
 
         <div>
           <label className="block text-sm font-medium mb-2">Password</label>
-          <input
-            type="password"
+          <PasswordInput
             {...register("password", { required: "Password is required", minLength: { value: 6, message: "Min 6 characters" } })}
             placeholder="Create a password"
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
           />
           {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-2">Confirm Password</label>
-          <input
-            type="password"
+          <PasswordInput
             {...register("confirmPassword", {
               required: "Confirm your password",
               validate: (v) => v === watch("password") || "Passwords do not match",
             })}
             placeholder="Confirm password"
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
           />
           {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>}
         </div>

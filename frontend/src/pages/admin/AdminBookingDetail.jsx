@@ -7,7 +7,7 @@ import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
-import { getBooking, updateBooking, markBookingAsRead, deleteBooking } from "../../services/bookings";
+import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking } from "../../services/bookings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 
@@ -88,7 +88,27 @@ export default function AdminBookingDetail() {
     }
   };
 
-  const handleReject = async () => {
+  const handleRejectBooking = async () => {
+    const { value: note, isConfirmed } = await Swal.fire({
+      title: "Reject this booking?",
+      text: "This cancels the booking and releases the time slot.",
+      input: "text",
+      inputPlaceholder: "Reason for rejection",
+      showCancelButton: true,
+      confirmButtonText: "Reject booking",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!isConfirmed) return;
+    try {
+      await rejectBooking(id, note || "Booking rejected by admin");
+      Swal.fire({ icon: "success", title: "Booking rejected", timer: 2000, showConfirmButton: false });
+      navigate("/admin/bookings", { replace: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRejectProof = async () => {
     if (!payment) return;
     try {
       await rejectPayment(payment.id, "Payment proof rejected by admin");
@@ -155,6 +175,15 @@ export default function AdminBookingDetail() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260] transition"
               >
                 <FaCheckCircle size={14} /> Mark completed
+              </button>
+            )}
+            {["awaiting_payment", "payment_submitted"].includes(booking.status) && (
+              <button
+                type="button"
+                onClick={handleRejectBooking}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition"
+              >
+                Reject booking
               </button>
             )}
             {canDelete && (
@@ -321,7 +350,7 @@ export default function AdminBookingDetail() {
                       </button>
                       <button
                         type="button"
-                        onClick={handleReject}
+                        onClick={handleRejectProof}
                         className="flex-1 min-w-[120px] px-5 py-3 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition"
                       >
                         Reject proof

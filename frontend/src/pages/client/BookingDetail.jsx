@@ -5,7 +5,7 @@ import ClientLayout from "../../components/layout/ClientLayout";
 import PaymentSection from "../../components/booking/PaymentSection";
 import CancellationFeeSection from "../../components/booking/CancellationFeeSection";
 import { useAuth } from "../../context/AuthContext";
-import { getBooking, requestCancellation } from "../../services/bookings";
+import { getBooking, requestCancellation, cancelBookingFree } from "../../services/bookings";
 import { getChecklist, updateChecklist } from "../../services/gallery";
 import { getChecklistProgress, getChecklistTasks, formatCheckedAt } from "../../lib/checklist";
 import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../lib/bookingReceipt";
@@ -50,6 +50,25 @@ export default function BookingDetail() {
   };
 
   const handleCancel = async () => {
+    const needsFee = booking.status === "confirmed";
+
+    if (!needsFee) {
+      const { value: reason, isConfirmed } = await Swal.fire({
+        title: "Cancel this booking?",
+        text: "Your booking has not been approved yet, so no cancellation fee applies.",
+        input: "text",
+        inputPlaceholder: "Reason (optional)",
+        showCancelButton: true,
+        confirmButtonText: "Cancel booking",
+        confirmButtonColor: "#dc2626",
+      });
+      if (!isConfirmed) return;
+      await cancelBookingFree(id, reason || "Cancelled before admin approval");
+      Swal.fire({ icon: "success", title: "Booking cancelled", timer: 2000, showConfirmButton: false });
+      load();
+      return;
+    }
+
     const { value: reason, isConfirmed } = await Swal.fire({
       title: "Request cancellation?",
       html: `<p class="text-sm text-gray-600 mb-2">A non-refundable cancellation fee of <strong>₱${CANCELLATION_FEE.toLocaleString()}</strong> applies.</p><p class="text-sm text-gray-500">Your booking stays active until you pay the fee and the studio verifies it.</p>`,
@@ -237,7 +256,7 @@ export default function BookingDetail() {
           {!["cancelled", "completed", "cancellation_pending", "cancellation_submitted"].includes(booking.status) && (
             <div className="text-center">
               <button type="button" onClick={handleCancel} className="text-red-500 text-sm hover:underline">
-                Request cancellation
+                {booking.status === "confirmed" ? "Request cancellation" : "Cancel booking"}
               </button>
             </div>
           )}

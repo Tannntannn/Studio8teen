@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import AdminLayout from "../../components/layout/AdminLayout";
 import { getAllClients } from "../../services/profiles";
 import { getAllBookings } from "../../services/bookings";
@@ -20,7 +21,11 @@ export default function AdminClients() {
           {clients.map((c) => {
             const clientBookings = bookings.filter((b) => b.client_id === c.id);
             return (
-              <div key={c.id} className="bg-white rounded-xl border border-[#E8E1DA] p-6">
+              <Link
+                key={c.id}
+                to={`/admin/clients/${c.id}`}
+                className="block bg-white rounded-xl border border-[#E8E1DA] p-6 hover:shadow-md transition"
+              >
                 <div className="flex justify-between">
                   <div>
                     <p className="font-semibold text-[#5B4636]">{c.full_name || "Unnamed"}</p>
@@ -28,7 +33,7 @@ export default function AdminClients() {
                   </div>
                   <span className="text-sm text-gray-400">{clientBookings.length} booking(s)</span>
                 </div>
-              </div>
+              </Link>
             );
           })}
           {clients.length === 0 && <p className="text-gray-400">No clients registered yet.</p>}

@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import PasswordInput from "../ui/PasswordInput";
 import Swal from "sweetalert2";
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
@@ -49,11 +50,9 @@ function LoginForm() {
 
         <div>
           <label className="block text-sm font-medium mb-2 text-gray-700">Password</label>
-          <input
-            type="password"
+          <PasswordInput
             {...register("password", { required: "Password is required" })}
             placeholder="Enter your password"
-            className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
           />
           {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
           <div className="text-right mt-2">

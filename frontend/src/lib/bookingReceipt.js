@@ -100,15 +100,15 @@ export async function downloadBookingReceipt(booking, profile) {
 
   y += 2;
   addLine("Payment Summary", { size: 13, bold: true, color: [169, 139, 117] });
-  addLine(`Base price: ₱${data.price.toLocaleString()}`);
+  addLine(`Base price: ₱${data.price.toLocaleString()} PHP`);
   data.addons.forEach((a) => {
-    addLine(`${a.name}: +₱${Number(a.price || 0).toLocaleString()}`);
+    addLine(`${a.name}: +₱${Number(a.price || 0).toLocaleString()} PHP`);
   });
-  addLine(`Total: ₱${data.total.toLocaleString()}`, { bold: true, size: 12 });
+  addLine(`Grand total: ₱${data.total.toLocaleString()} PHP`, { bold: true, size: 12 });
 
   if (data.payment) {
     addLine(
-      `Payment: ${data.payment.payment_type} — ₱${Number(data.payment.amount).toLocaleString()} (${data.payment.status})`
+      `Payment: ${data.payment.payment_type} — ₱${Number(data.payment.amount).toLocaleString()} PHP (${data.payment.status})`
     );
   }
 
