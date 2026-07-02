@@ -273,3 +273,26 @@ export async function analyzeImageFiles(files) {
   if (!merged) return null;
   return deriveSuggestions(merged);
 }
+
+/** Analyze remote image URLs (e.g. after Cloudinary upload). Uses the most recent image. */
+export async function analyzeImageUrls(urls) {
+  const metrics = [];
+  for (const url of (urls || []).filter(Boolean).slice(-1)) {
+    try {
+      const img = await loadImage(url);
+      const size = 120;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, size, size);
+      const { data } = ctx.getImageData(0, 0, size, size);
+      metrics.push(analyzePixels(data));
+    } catch {
+      /* skip CORS or broken URL */
+    }
+  }
+  const merged = mergeMetrics(metrics);
+  if (!merged) return null;
+  return deriveSuggestions(merged);
+}

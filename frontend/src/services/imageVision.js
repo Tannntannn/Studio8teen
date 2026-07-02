@@ -1,27 +1,51 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { getVisionAnalysisUrl } from "../lib/cloudinary";
-import { buildSuggestionsFromVision, buildVisionInstruction } from "../lib/visionPostProcess";
+import { buildSuggestionsFromVision, buildFastVisionInstruction } from "../lib/visionPostProcess";
 
 const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 
-/** Accuracy-first, with fast fallback. */
-const PRIMARY_VISION_MODEL = "google/gemma-4-31b-it:free";
-const FALLBACK_VISION_MODELS = ["nvidia/nemotron-nano-12b-v2-vl:free", "google/gemma-4-26b-a4b-it:free"];
+/** Fastest free models first — fewer fallbacks = less waiting when busy. */
+const FAST_VISION_MODELS = [
+  "nvidia/nemotron-nano-12b-v2-vl:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "google/gemma-4-31b-it:free",
+];
 
-const ANALYSIS_DEADLINE_MS = 35_000;
-const PER_REQUEST_TIMEOUT_MS = 22_000;
-const RATE_LIMIT_RETRY_MS = 4_000;
+const ANALYSIS_DEADLINE_MS = 22_000;
+const PER_REQUEST_TIMEOUT_MS = 14_000;
+const RATE_LIMIT_RETRY_MS = 2_500;
+const CACHE_TTL_MS = 30 * 60 * 1000;
+
+const visionCache = new Map();
 
 const asArray = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
 const asText = (v) => (typeof v === "string" ? v.trim() : "");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const VISION_PROMPT =
-  "You are a photography classification expert. Describe ONLY what is visible in the image. " +
-  "List visual_cues (clothing, props, setting) before choosing event_type. " +
-  "Occasion must be proven by visible evidence — never by mood alone. " +
-  "Romantic couple in graduation caps = Graduation, NOT Wedding. Return ONLY valid JSON.";
+  "You are a photography classification expert. Describe ONLY what is visible. " +
+  "Occasion must be proven by clothing/props/setting — never mood alone. Return ONLY valid JSON.";
+
+function cacheKey(urls) {
+  return urls.map((u) => u.split("/").slice(-2).join("/")).join("|");
+}
+
+function readCache(urls) {
+  const hit = visionCache.get(cacheKey(urls));
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    visionCache.delete(cacheKey(urls));
+    return null;
+  }
+  return hit.result;
+}
+
+function writeCache(urls, result) {
+  if (result?.suggestions) {
+    visionCache.set(cacheKey(urls), { at: Date.now(), result });
+  }
+}
 
 function normalizeSuggestions(suggestions) {
   if (!suggestions || typeof suggestions !== "object") return null;
@@ -92,6 +116,12 @@ function parseInvokeResponse(payload) {
   return null;
 }
 
+function buildModelList() {
+  const customModel = import.meta.env.VITE_OPENROUTER_MODEL;
+  const models = customModel ? [customModel, ...FAST_VISION_MODELS] : FAST_VISION_MODELS;
+  return [...new Set(models)];
+}
+
 async function callOpenRouter(model, content, timeoutMs) {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -109,7 +139,7 @@ async function callOpenRouter(model, content, timeoutMs) {
       ],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_tokens: 1300,
+      max_tokens: 900,
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -127,28 +157,19 @@ async function callOpenRouter(model, content, timeoutMs) {
 
   const data = JSON.parse(bodyText);
   const raw = data?.choices?.[0]?.message?.content;
-  if (!raw) return { ok: false, rateLimited: false, timedOut: false, error: "empty response", body: "" };
+  if (!raw) return { ok: false, rateLimited: false, error: "empty response", body: "" };
 
   const parsed = parseModelJson(raw);
   const suggestions = mergeParsedToSuggestions(parsed);
-  if (!suggestions) return { ok: false, rateLimited: false, timedOut: false, error: "invalid json", body: "" };
+  if (!suggestions) return { ok: false, rateLimited: false, error: "invalid json", body: "" };
 
   return { ok: true, suggestions, model };
 }
 
-function buildModelList() {
-  const customModel = import.meta.env.VITE_OPENROUTER_MODEL;
-  const models = customModel
-    ? [customModel, PRIMARY_VISION_MODEL, ...FALLBACK_VISION_MODELS]
-    : [PRIMARY_VISION_MODEL, ...FALLBACK_VISION_MODELS];
-  return [...new Set(models)];
-}
-
-/** Fast OpenRouter path — one primary model, one fallback, hard time cap. */
 async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
   if (!OPENROUTER_KEY) return null;
 
-  const content = [{ type: "text", text: buildVisionInstruction(urls.length) }];
+  const content = [{ type: "text", text: buildFastVisionInstruction(urls.length) }];
   for (const url of urls) {
     content.push({ type: "image_url", image_url: { url } });
   }
@@ -161,9 +182,9 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
   let rateLimitRetried = false;
 
   for (const model of models) {
-    if (timeLeft() < 2000) break;
+    if (timeLeft() < 1500) break;
 
-    onStatus?.(`Analyzing with ${shortModelName(model)}...`);
+    onStatus?.(`AI analyzing (${shortModelName(model)})...`);
     const timeoutMs = Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft());
 
     try {
@@ -178,18 +199,17 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
 
       if (result.rateLimited) {
         sawRateLimit = true;
-        if (!rateLimitRetried && timeLeft() > RATE_LIMIT_RETRY_MS + 3000) {
+        if (!rateLimitRetried && timeLeft() > RATE_LIMIT_RETRY_MS + 2000) {
           rateLimitRetried = true;
-          onStatus?.(`Busy — retrying in ${Math.round(RATE_LIMIT_RETRY_MS / 1000)}s...`);
+          onStatus?.(`Models busy — quick retry...`);
           await sleep(RATE_LIMIT_RETRY_MS);
-          const retryTimeout = Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft());
-          const retry = await callOpenRouter(model, content, retryTimeout);
+          const retry = await callOpenRouter(model, content, Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft()));
           if (retry.ok) {
             return { suggestions: retry.suggestions, meta: { source: "openrouter-direct", model: retry.model } };
           }
           lastError = retry.body?.slice(0, 180) || retry.error;
         }
-        continue;
+        break;
       }
     } catch (err) {
       lastError = err.name === "TimeoutError" || err.name === "AbortError" ? "Request timed out." : err.message;
@@ -201,17 +221,14 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
       suggestions: null,
       meta: {
         error: "rate_limited",
-        detail: "Models are busy — wait a minute and click Re-analyze.",
+        detail: "AI models are busy — quick local suggestions were applied. Try Re-analyze in a minute.",
       },
     };
   }
 
   return {
     suggestions: null,
-    meta: {
-      error: "vision_failed",
-      detail: lastError,
-    },
+    meta: { error: "vision_failed", detail: lastError },
   };
 }
 
@@ -223,7 +240,31 @@ async function analyzeViaEdgeFunction(urls) {
   return parseInvokeResponse(payload);
 }
 
-export async function analyzeImagesWithVision(imageUrls, { maxImages = 2, onStatus } = {}) {
+function raceVisionProviders(urls, { onStatus } = {}) {
+  const attempts = [];
+
+  if (OPENROUTER_KEY) {
+    attempts.push(
+      analyzeWithOpenRouterDirect(urls, { onStatus }).then((result) => {
+        if (result?.suggestions) return result;
+        throw result;
+      })
+    );
+  }
+
+  attempts.push(
+    analyzeViaEdgeFunction(urls).then((result) => {
+      if (result?.suggestions) return result;
+      throw result;
+    })
+  );
+
+  if (!attempts.length) return Promise.resolve(null);
+
+  return Promise.any(attempts).catch(() => null);
+}
+
+export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStatus } = {}) {
   const urls = (imageUrls || [])
     .filter(Boolean)
     .slice(-maxImages)
@@ -231,26 +272,44 @@ export async function analyzeImagesWithVision(imageUrls, { maxImages = 2, onStat
 
   if (!urls.length) return null;
 
-  onStatus?.("Analyzing...");
-
-  if (OPENROUTER_KEY) {
-    const direct = await analyzeWithOpenRouterDirect(urls, { onStatus });
-    if (direct?.suggestions) return direct;
-    if (direct?.meta) return direct;
+  const cached = readCache(urls);
+  if (cached) {
+    onStatus?.("Using recent analysis.");
+    return cached;
   }
 
-  try {
-    const edge = await Promise.race([analyzeViaEdgeFunction(urls), sleep(35000).then(() => null)]);
-    if (edge?.suggestions) return edge;
-    return edge;
-  } catch (err) {
-    return { suggestions: null, meta: { error: "network_error", detail: err.message } };
+  onStatus?.("Enhancing with AI...");
+
+  const raced = await Promise.race([
+    raceVisionProviders(urls, { onStatus }),
+    sleep(ANALYSIS_DEADLINE_MS).then(() => null),
+  ]);
+
+  if (raced?.suggestions) {
+    writeCache(urls, raced);
+    return raced;
   }
+
+  if (raced?.meta) return raced;
+
+  return {
+    suggestions: null,
+    meta: {
+      error: "vision_failed",
+      detail: "AI timed out — local color/mood suggestions are still shown.",
+    },
+  };
 }
 
 export function localColorSuggestionsOnly(local) {
   if (!local) return null;
   return {
+    theme: local.theme,
+    mood: local.mood,
+    location_type: local.location_type,
+    photography_style: local.photography_style,
+    lighting_style: local.lighting_style,
+    editing_style: local.editing_style,
     color_palette: local.color_palette || [],
     tags: (local.tags || []).filter((t) =>
       ["bright", "dark", "balanced", "warm tones", "cool tones", "neutral tones", "muted", "vibrant", "greenery"].some(

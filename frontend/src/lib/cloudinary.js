@@ -13,8 +13,8 @@ export function getGalleryUrl(url, width = 800) {
   return url.replace("/upload/", `/upload/w_${width},f_auto,q_auto/`);
 }
 
-/** Vision analysis URL — insert transform after /upload/ (Cloudinary-safe). */
-export function getVisionAnalysisUrl(url, width = 640) {
+/** Vision analysis URL — smaller = faster model response. */
+export function getVisionAnalysisUrl(url, width = 448) {
   if (!url || !url.includes("cloudinary.com")) return url;
   const transform = `w_${width},c_limit,f_auto,q_80`;
   if (url.includes(`/upload/${transform}/`)) return url;

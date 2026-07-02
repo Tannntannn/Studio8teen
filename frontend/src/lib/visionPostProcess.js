@@ -212,3 +212,14 @@ CLASSIFICATION RULES (strict):
 
 List visual_cues BEFORE choosing event_type. If unsure use "" and event_confidence "low". Do NOT guess Wedding or Classic.`;
 }
+
+/** Shorter prompt for faster vision API responses (single image). */
+export function buildFastVisionInstruction(imageCount = 1) {
+  return `Analyze ${imageCount} photo(s). Return JSON only:
+{
+  "per_image":[{"visual_cues":["8 items max"],"event_type":"","event_confidence":"high|medium|low","theme":"","mood":"","photography_style":"","location_type":"","lighting_style":"","editing_style":"","color_palette":["#hex"],"outfit_suggestions":[],"prop_suggestions":[],"tags":[]}],
+  "occasion_reasoning":"",
+  "merged":{"theme":"","event_type":"","photography_style":"","mood":"","location_type":"","lighting_style":"","editing_style":"","description":"","color_palette":[],"outfit_suggestions":[],"prop_suggestions":[],"tags":[]}
+}
+event_type options: ${EVENT_TYPES.join(", ")}. Graduation=caps/gowns. Wedding=wedding dress/veil only. List cues before event_type.`;
+}

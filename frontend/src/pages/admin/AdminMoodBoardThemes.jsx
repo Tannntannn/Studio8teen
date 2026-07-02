@@ -10,7 +10,7 @@ import {
   asStringArray,
 } from "../../services/moodBoardThemes";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
-import { analyzeImageFiles } from "../../lib/imageAnalysis";
+import { analyzeImageFiles, analyzeImageUrls } from "../../lib/imageAnalysis";
 import { analyzeImagesWithVision, localColorSuggestionsOnly } from "../../services/imageVision";
 import { normalizeEventType } from "../../lib/themeMatching";
 import { EVENT_TYPES, DEFAULT_THEMES, MOOD_OPTIONS, LOCATION_TYPES, PHOTOGRAPHY_STYLES } from "../../lib/moodBoardOptions";
@@ -177,10 +177,16 @@ export default function AdminMoodBoardThemes() {
   };
 
   const runVisionAnalysis = async (urls, { overwrite = false, localPalette = null } = {}) => {
-    const analyzeUrls = (urls || []).filter(Boolean).slice(-2);
+    const analyzeUrls = (urls || []).filter(Boolean).slice(-1);
     if (!analyzeUrls.length) return;
 
-    setSuggestionNote("Analyzing...");
+    if (localPalette) {
+      applySuggestions(localColorSuggestionsOnly(localPalette) || localPalette, { overwrite });
+      setSuggestionNote("Quick suggestions applied — enhancing with AI...");
+    } else {
+      setSuggestionNote("Enhancing with AI...");
+    }
+
     const result = await analyzeImagesWithVision(analyzeUrls, {
       onStatus: (msg) => setSuggestionNote(msg),
     });
@@ -193,7 +199,16 @@ export default function AdminMoodBoardThemes() {
           : localPalette?.color_palette || [],
       };
       applySuggestions(s, { overwrite });
-      setSuggestionNote("Analysis completed.");
+      setSuggestionNote("AI analysis completed.");
+      return;
+    }
+
+    if (localPalette) {
+      setSuggestionNote(
+        result?.meta?.error === "rate_limited"
+          ? "AI is busy — quick local suggestions are applied. Try Re-analyze in a minute."
+          : "AI unavailable — quick local suggestions are applied."
+      );
       return;
     }
 
@@ -201,9 +216,9 @@ export default function AdminMoodBoardThemes() {
     if (colorsOnly) applySuggestions(colorsOnly, { overwrite });
     const detail = result?.meta?.detail;
     if (result?.meta?.error === "rate_limited") {
-      setSuggestionNote(detail || "Analysis failed — free models are busy. Wait 1–2 min and click Re-analyze.");
+      setSuggestionNote(detail || "AI is busy. Wait 1–2 min and click Re-analyze.");
     } else {
-      setSuggestionNote(detail ? `Analysis failed. ${detail}` : "Analysis failed.");
+      setSuggestionNote(detail ? `Analysis failed. ${detail}` : "Analysis failed — try Re-analyze.");
     }
   };
 
@@ -212,20 +227,25 @@ export default function AdminMoodBoardThemes() {
     if (!files.length) return;
 
     setUploading(true);
-    setSuggestionNote("");
+    setSuggestionNote("Reading colors from your images...");
     try {
-      const localPromise = analyzeImageFiles(files).catch(() => null);
-
-      const uploaded = [];
-      for (const file of files) {
-        const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.moodBoardThemes);
-        uploaded.push({ id: crypto.randomUUID(), url, public_id: publicId, caption: "" });
+      const local = await analyzeImageFiles(files);
+      if (local) {
+        applySuggestions(localColorSuggestionsOnly(local) || local, { overwrite: false });
+        setSuggestionNote("Quick suggestions ready — uploading images...");
       }
+
+      const uploaded = await Promise.all(
+        files.map(async (file) => {
+          const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.moodBoardThemes);
+          return { id: crypto.randomUUID(), url, public_id: publicId, caption: "" };
+        })
+      );
       setCurrentImages((imgs) => [...imgs, ...uploaded]);
+      setUploading(false);
 
       setAnalyzing(true);
       const uploadedUrls = uploaded.map((u) => u.url);
-      const local = await localPromise;
       await runVisionAnalysis(uploadedUrls, { localPalette: local });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
@@ -243,9 +263,12 @@ export default function AdminMoodBoardThemes() {
       return;
     }
     setAnalyzing(true);
-    setSuggestionNote("");
     try {
-      await runVisionAnalysis(urls, { overwrite });
+      const local = await analyzeImageUrls(urls);
+      if (local) {
+        applySuggestions(localColorSuggestionsOnly(local) || local, { overwrite });
+      }
+      await runVisionAnalysis(urls, { overwrite, localPalette: local });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Analysis failed", text: err.message });
     } finally {

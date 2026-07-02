@@ -447,9 +447,9 @@ async function analyzeWithOpenRouter(urls: string[]) {
           ],
           response_format: { type: "json_object" },
           temperature: 0,
-          max_tokens: 1800,
+          max_tokens: 900,
         }),
-        signal: AbortSignal.timeout(28000),
+        signal: AbortSignal.timeout(18000),
       });
 
       const bodyText = await res.text();
