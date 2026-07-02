@@ -6,27 +6,41 @@ import {
   getPoseSuggestions,
   addPoseSuggestion,
   deletePoseSuggestion,
+  getPublicPortfolio,
+  addPublicPortfolioItem,
+  deletePublicPortfolioItem,
 } from "../../services/gallery";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
+import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
 
-export default function AdminPortfolio() {
-  const [poses, setPoses] = useState([]);
-  const [uploading, setUploading] = useState(false);
-  const [poseMeta, setPoseMeta] = useState({ category: "Portrait", description: "" });
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [lightboxIndex, setLightboxIndex] = useState(null);
+const POSE_CATEGORIES = ["Portrait", "Couple", "Group", "Wedding", "Creative"];
+const PORTFOLIO_CATEGORIES = ["Wedding", "Birthday", "Studio", "Corporate"];
 
-  const load = () => getPoseSuggestions("All").then(setPoses).catch(console.error);
+export default function AdminPortfolio() {
+  const { user } = useAuth();
+  const [poses, setPoses] = useState([]);
+  const [portfolio, setPortfolio] = useState([]);
+  const [uploadingPose, setUploadingPose] = useState(false);
+  const [uploadingPortfolio, setUploadingPortfolio] = useState(false);
+  const [poseMeta, setPoseMeta] = useState({ category: "Portrait", description: "" });
+  const [portfolioMeta, setPortfolioMeta] = useState({ title: "", category: "Studio" });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [poseLightboxIndex, setPoseLightboxIndex] = useState(null);
+  const [portfolioLightboxIndex, setPortfolioLightboxIndex] = useState(null);
+
+  const loadPoses = () => getPoseSuggestions("All").then(setPoses).catch(console.error);
+  const loadPortfolio = () => getPublicPortfolio().then(setPortfolio).catch(console.error);
 
   useEffect(() => {
-    load();
+    loadPoses();
+    loadPortfolio();
   }, []);
 
   const uploadPose = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploading(true);
+    setUploadingPose(true);
     try {
       const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.poses);
       await addPoseSuggestion({
@@ -36,21 +50,55 @@ export default function AdminPortfolio() {
         cloudinary_public_id: publicId,
       });
       setPoseMeta((m) => ({ ...m, description: "" }));
-      await load();
+      await loadPoses();
       Swal.fire({ icon: "success", title: "Pose uploaded", timer: 1500, showConfirmButton: false });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
     } finally {
-      setUploading(false);
+      setUploadingPose(false);
+      e.target.value = "";
+    }
+  };
+
+  const uploadPortfolio = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!portfolioMeta.title.trim()) {
+      Swal.fire({ icon: "warning", title: "Title required", text: "Enter a title before uploading." });
+      e.target.value = "";
+      return;
+    }
+    setUploadingPortfolio(true);
+    try {
+      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.publicPortfolio);
+      await addPublicPortfolioItem({
+        title: portfolioMeta.title.trim(),
+        category: portfolioMeta.category,
+        cloudinary_url: url,
+        cloudinary_public_id: publicId,
+        uploaded_by: user?.id || null,
+      });
+      setPortfolioMeta((m) => ({ ...m, title: "" }));
+      await loadPortfolio();
+      Swal.fire({ icon: "success", title: "Portfolio image uploaded", timer: 1500, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
+    } finally {
+      setUploadingPortfolio(false);
       e.target.value = "";
     }
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await deletePoseSuggestion(deleteTarget.id);
+    if (deleteTarget.type === "pose") {
+      await deletePoseSuggestion(deleteTarget.item.id);
+      loadPoses();
+    } else {
+      await deletePublicPortfolioItem(deleteTarget.item.id);
+      loadPortfolio();
+    }
     setDeleteTarget(null);
-    load();
   };
 
   return (
@@ -67,7 +115,7 @@ export default function AdminPortfolio() {
               onChange={(e) => setPoseMeta({ ...poseMeta, category: e.target.value })}
               className="border border-[#E8E1DA] rounded-xl px-4 py-2 text-sm"
             >
-              {["Portrait", "Couple", "Group", "Wedding", "Creative"].map((c) => (
+              {POSE_CATEGORIES.map((c) => (
                 <option key={c}>{c}</option>
               ))}
             </select>
@@ -82,8 +130,8 @@ export default function AdminPortfolio() {
             />
           </div>
           <label className="px-4 py-2.5 rounded-xl bg-[#A98B75] text-white cursor-pointer text-sm font-medium hover:bg-[#8a7260] transition">
-            {uploading ? "Uploading..." : "Upload Pose Image"}
-            <input type="file" accept="image/*" onChange={uploadPose} className="hidden" disabled={uploading} />
+            {uploadingPose ? "Uploading..." : "Upload Pose Image"}
+            <input type="file" accept="image/*" onChange={uploadPose} className="hidden" disabled={uploadingPose} />
           </label>
         </div>
 
@@ -98,11 +146,7 @@ export default function AdminPortfolio() {
                 key={pose.id}
                 className="group relative aspect-[3/4] rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5"
               >
-                <button
-                  type="button"
-                  onClick={() => setLightboxIndex(i)}
-                  className="w-full h-full"
-                >
+                <button type="button" onClick={() => setPoseLightboxIndex(i)} className="w-full h-full">
                   <img
                     src={getThumbnailUrl(pose.cloudinary_url, 400, 500)}
                     alt={pose.description || pose.category}
@@ -117,7 +161,7 @@ export default function AdminPortfolio() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDeleteTarget(pose)}
+                  onClick={() => setDeleteTarget({ type: "pose", item: pose })}
                   className="absolute top-2 right-2 bg-red-600 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition"
                 >
                   Delete
@@ -126,22 +170,107 @@ export default function AdminPortfolio() {
             ))}
           </div>
         )}
+
+        <section className="mt-16 pt-10 border-t border-[#E8E1DA]">
+          <h2 className="heading-serif text-3xl font-bold text-[#5B4636] mb-2">Public Portfolio</h2>
+          <p className="text-gray-500 mb-8">
+            Upload studio work shown on the homepage, public portfolio page, and at the bottom of the client Pose Gallery.
+          </p>
+
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 flex flex-wrap gap-4 items-end mb-8">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Category</label>
+              <select
+                value={portfolioMeta.category}
+                onChange={(e) => setPortfolioMeta({ ...portfolioMeta, category: e.target.value })}
+                className="border border-[#E8E1DA] rounded-xl px-4 py-2 text-sm"
+              >
+                {PORTFOLIO_CATEGORIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-xs text-gray-500 mb-1">Title</label>
+              <input
+                placeholder="e.g. Garden Wedding"
+                value={portfolioMeta.title}
+                onChange={(e) => setPortfolioMeta({ ...portfolioMeta, title: e.target.value })}
+                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-2 text-sm"
+              />
+            </div>
+            <label className="px-4 py-2.5 rounded-xl bg-[#5B4636] text-white cursor-pointer text-sm font-medium hover:bg-[#4a3829] transition">
+              {uploadingPortfolio ? "Uploading..." : "Upload Portfolio Image"}
+              <input type="file" accept="image/*" onChange={uploadPortfolio} className="hidden" disabled={uploadingPortfolio} />
+            </label>
+          </div>
+
+          {portfolio.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-[#E8E1DA] p-12 text-center text-gray-400">
+              No public portfolio images yet. Upload your first image above.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {portfolio.map((item, i) => (
+                <div
+                  key={item.id}
+                  className="group relative aspect-square rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5"
+                >
+                  <button type="button" onClick={() => setPortfolioLightboxIndex(i)} className="w-full h-full">
+                    <img
+                      src={getThumbnailUrl(item.cloudinary_url, 400, 400)}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      loading="lazy"
+                      onError={(e) => { e.target.src = item.cloudinary_url; }}
+                    />
+                  </button>
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition">
+                    <p className="text-white text-xs font-medium">{item.category}</p>
+                    <p className="text-white/80 text-[10px] truncate">{item.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget({ type: "portfolio", item })}
+                    className="absolute top-2 right-2 bg-red-600 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
-      {lightboxIndex != null && (
+      {poseLightboxIndex != null && (
         <ImageLightbox
           images={poses}
-          index={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
-          meta={poses[lightboxIndex]?.category}
+          index={poseLightboxIndex}
+          onClose={() => setPoseLightboxIndex(null)}
+          onNavigate={setPoseLightboxIndex}
+          meta={poses[poseLightboxIndex]?.category}
+        />
+      )}
+
+      {portfolioLightboxIndex != null && (
+        <ImageLightbox
+          images={portfolio}
+          index={portfolioLightboxIndex}
+          onClose={() => setPortfolioLightboxIndex(null)}
+          onNavigate={setPortfolioLightboxIndex}
+          meta={`${portfolio[portfolioLightboxIndex]?.category} — ${portfolio[portfolioLightboxIndex]?.title}`}
         />
       )}
 
       <ConfirmModal
         open={!!deleteTarget}
-        title="Delete pose?"
-        message={`Remove "${deleteTarget?.category}" pose from the gallery? Clients will no longer see it.`}
+        title={deleteTarget?.type === "portfolio" ? "Delete portfolio image?" : "Delete pose?"}
+        message={
+          deleteTarget?.type === "portfolio"
+            ? `Remove "${deleteTarget?.item?.title}" from the public portfolio?`
+            : `Remove "${deleteTarget?.item?.category}" pose from the gallery? Clients will no longer see it.`
+        }
         confirmLabel="Delete"
         cancelLabel="Cancel"
         variant="danger"
