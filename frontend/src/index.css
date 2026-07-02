@@ -1,0 +1,209 @@
+@import "tailwindcss";
+
+/* ===== Base Reset ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-width: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Typography ===== */
+.heading-serif {
+  font-family: 'Playfair Display', 'Georgia', serif;
+}
+
+/* ===== Keyframe Animations ===== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* Hero entrance animations with staggered delays */
+.hero-animate {
+  animation: fadeInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.hero-animate-delay-1 {
+  opacity: 0;
+  animation: fadeInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.15s forwards;
+}
+
+.hero-animate-delay-2 {
+  opacity: 0;
+  animation: fadeInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.3s forwards;
+}
+
+.hero-animate-delay-3 {
+  opacity: 0;
+  animation: fadeInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1) 0.5s forwards;
+}
+
+/* ===== Scroll Reveal (used by IntersectionObserver) ===== */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.scroll-reveal.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ===== Card Top-Accent Line (gradient reveal on hover) ===== */
+.card-accent {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #A98B75, #5B4636);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-accent:hover::before {
+  transform: scaleX(1);
+}
+
+/* ===== Swiper Pagination Customisation ===== */
+.hero-swiper .swiper-pagination {
+  bottom: 30px !important;
+}
+
+.hero-swiper .swiper-pagination-bullet {
+  background: white;
+  opacity: 0.4;
+  width: 10px;
+  height: 10px;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hero-swiper .swiper-pagination-bullet-active {
+  opacity: 1;
+  width: 32px;
+  border-radius: 5px;
+  background: #A98B75;
+}
+
+/* ===== Custom Scrollbar ===== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F8F6F3;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c4a88e;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A98B75;
+}
+
+/* ===== Text Selection ===== */
+::selection {
+  background: rgba(169, 139, 117, 0.3);
+  color: #5B4636;
+}
+
+/* ===== Section Divider Utility ===== */
+.section-divider {
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, #A98B75, #5B4636);
+  margin: 1rem auto 0;
+  border-radius: 2px;
+}
+
+/* ===== Page Transitions ===== */
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes loginSuccess {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}
+
+.page-transition {
+  animation: pageFadeIn 0.35s ease-out;
+}
+
+.page-transition-auth {
+  animation: authEnter 0.4s ease-out;
+}
+
+.login-exit {
+  animation: loginSuccess 0.4s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition,
+  .page-transition-auth,
+  .login-exit {
+    animation: none;
+  }
+}
