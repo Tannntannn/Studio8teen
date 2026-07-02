@@ -1,30 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  TIME_SLOTS,
   ensureMonthAvailability,
+  getTimeSlots,
   setDayAvailability,
   subscribeAvailability,
-  toggleAvailabilitySlot,
+  subscribeBookings,
+  syncMonthAvailability,
+  updateAvailabilitySlot,
 } from "../../services/settings";
 
 const LEGEND = [
   { label: "Available", className: "bg-green-200 border-green-400" },
-  { label: "Booked", className: "bg-amber-200 border-amber-400" },
-  { label: "Unavailable", className: "bg-red-200 border-red-400" },
-  { label: "Disabled", className: "bg-gray-200 border-gray-300" },
+  { label: "Partial", className: "bg-amber-200 border-amber-400" },
+  { label: "Full", className: "bg-red-200 border-red-400" },
+  { label: "Closed", className: "bg-gray-200 border-gray-300" },
 ];
 
 function cellStyle(cell) {
-  if (!cell || cell.is_enabled === false) return "bg-gray-200 border-gray-300 text-gray-400";
+  if (!cell || cell.is_enabled === false) return "bg-gray-200 border-gray-300 text-gray-500";
   if (cell.booked_count >= cell.capacity) return "bg-red-200 border-red-400 text-red-800";
   if (cell.booked_count > 0) return "bg-amber-200 border-amber-400 text-amber-900";
   return "bg-green-200 border-green-400 text-green-900";
 }
 
 function cellLabel(cell) {
-  if (!cell || cell.is_enabled === false) return "Off";
+  if (!cell || cell.is_enabled === false) return "Closed";
+  if (cell.booked_count >= cell.capacity) return `Full ${cell.booked_count}/${cell.capacity}`;
   if (cell.booked_count > 0) return `${cell.booked_count}/${cell.capacity}`;
-  return "Open";
+  return `Open ${cell.capacity}`;
+}
+
+function cellStatus(cell) {
+  if (!cell || cell.is_enabled === false) return "closed";
+  if (cell.booked_count >= cell.capacity) return "full";
+  if (cell.booked_count > 0) return "partial";
+  return "available";
 }
 
 export default function AvailabilityHeatmap({ compact = false }) {
@@ -32,6 +42,7 @@ export default function AvailabilityHeatmap({ compact = false }) {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
+  const [timeSlots, setTimeSlots] = useState([]);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
@@ -39,7 +50,10 @@ export default function AvailabilityHeatmap({ compact = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await ensureMonthAvailability(month);
+      const slots = await getTimeSlots();
+      setTimeSlots(slots);
+      await syncMonthAvailability(month);
+      const rows = await ensureMonthAvailability(month, slots);
       setData(rows);
     } catch (err) {
       console.error("Availability load failed:", err.message);
@@ -52,7 +66,14 @@ export default function AvailabilityHeatmap({ compact = false }) {
     load();
   }, [load]);
 
-  useEffect(() => subscribeAvailability(load), [load]);
+  useEffect(() => {
+    const unsubA = subscribeAvailability(load);
+    const unsubB = subscribeBookings(load);
+    return () => {
+      unsubA();
+      unsubB();
+    };
+  }, [load]);
 
   const daysInMonth = (() => {
     const [y, m] = month.split("-").map(Number);
@@ -68,11 +89,31 @@ export default function AvailabilityHeatmap({ compact = false }) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const cell = getCell(day, slot);
     const key = `${date}|${slot}`;
-    if (cell?.booked_count > 0) return;
     setBusy(key);
     try {
-      const currentlyEnabled = cell?.is_enabled !== false;
-      await toggleAvailabilitySlot(date, slot, !currentlyEnabled);
+      const booked = cell?.booked_count || 0;
+      const capacity = cell?.capacity ?? 2;
+      const status = cellStatus(cell);
+
+      if (status === "closed") {
+        await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: Math.max(2, booked + 1) });
+      } else if (status === "available") {
+        await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
+      } else if (status === "partial") {
+        await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: booked });
+      } else if (status === "full") {
+        const next = window.prompt(
+          `Slot ${date} ${slot}: ${booked}/${capacity} booked.\nEnter new capacity (min ${booked}) or leave blank to close:`,
+          String(capacity + 1)
+        );
+        if (next === null) return;
+        if (next.trim() === "") {
+          await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
+        } else {
+          const cap = Math.max(booked, parseInt(next, 10) || capacity + 1);
+          await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: cap });
+        }
+      }
       await load();
     } catch (err) {
       console.error(err);
@@ -85,7 +126,7 @@ export default function AvailabilityHeatmap({ compact = false }) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     setBusy(`day-${day}`);
     try {
-      await setDayAvailability(date, enable);
+      await setDayAvailability(date, enable, timeSlots);
       await load();
     } finally {
       setBusy(null);
@@ -97,7 +138,9 @@ export default function AvailabilityHeatmap({ compact = false }) {
       <div className={`flex flex-wrap justify-between items-center gap-3 ${compact ? "mb-4" : "mb-6"}`}>
         <div>
           {!compact && <h2 className="font-semibold text-[#5B4636] text-lg">Availability Heatmap</h2>}
-          <p className="text-xs text-gray-500 mt-1">Click a slot to toggle availability. Booked slots cannot be changed.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Click a slot to cycle: Open → Closed, or Partial → Full. Bookings update counts automatically.
+          </p>
         </div>
         <input
           type="month"
@@ -125,7 +168,7 @@ export default function AvailabilityHeatmap({ compact = false }) {
             <thead>
               <tr>
                 <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3] text-left sticky left-0">Day</th>
-                {TIME_SLOTS.map((s) => (
+                {timeSlots.map((s) => (
                   <th key={s} className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]">{s}</th>
                 ))}
                 <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]">Actions</th>
@@ -140,21 +183,20 @@ export default function AvailabilityHeatmap({ compact = false }) {
                     <td className="p-2 border border-[#E8E1DA] font-medium bg-white sticky left-0">
                       {day} <span className="text-gray-400">{weekday}</span>
                     </td>
-                    {TIME_SLOTS.map((slot) => {
+                    {timeSlots.map((slot) => {
                       const cell = getCell(day, slot);
                       const key = `${date}|${slot}`;
-                      const hasBooking = cell?.booked_count > 0;
                       return (
                         <td key={slot} className="p-1 border border-[#E8E1DA]">
                           <button
                             type="button"
-                            disabled={hasBooking || busy === key}
+                            disabled={busy === key}
                             onClick={() => handleCellClick(day, slot)}
-                            className={`w-full min-w-[52px] py-2 rounded-lg border text-center transition hover:opacity-80 disabled:cursor-not-allowed ${cellStyle(cell)}`}
+                            className={`w-full min-w-[56px] py-2 rounded-lg border text-center text-[10px] leading-tight transition hover:opacity-80 disabled:opacity-60 ${cellStyle(cell)}`}
                             title={
                               cell
-                                ? `${cell.avail_date} ${slot}: ${cell.booked_count}/${cell.capacity}${cell.is_enabled === false ? " (disabled)" : ""}`
-                                : "Click to enable"
+                                ? `${cell.avail_date} ${slot}: ${cell.booked_count}/${cell.capacity} — ${cellStatus(cell)}`
+                                : "Click to open"
                             }
                           >
                             {cellLabel(cell)}

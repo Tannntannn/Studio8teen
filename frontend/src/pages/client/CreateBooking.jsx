@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import ClientLayout from "../../components/layout/ClientLayout";
 import { getPackages } from "../../services/packages";
 import { createBooking } from "../../services/bookings";
-import { getAvailability, incrementBookedCount, subscribeAvailability } from "../../services/settings";
+import { getAvailability, ensureMonthAvailability, subscribeAvailability, subscribeBookings, syncMonthAvailability, isSlotBookable } from "../../services/settings";
 import { useAuth } from "../../context/AuthContext";
 import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import Swal from "sweetalert2";
@@ -40,13 +40,24 @@ export default function CreateBooking() {
 
   useEffect(() => {
     if (!selectedDate) { setSlots([]); return; }
-    const loadSlots = () => {
-      getAvailability(selectedDate, selectedDate).then((data) => {
+    const month = selectedDate.slice(0, 7);
+    const loadSlots = async () => {
+      try {
+        await syncMonthAvailability(month);
+        await ensureMonthAvailability(month);
+        const data = await getAvailability(selectedDate, selectedDate);
         setSlots(data.filter((s) => s.is_enabled !== false && s.booked_count < s.capacity));
-      }).catch(console.error);
+      } catch (err) {
+        console.error(err);
+      }
     };
     loadSlots();
-    return subscribeAvailability(loadSlots);
+    const unsubA = subscribeAvailability(loadSlots);
+    const unsubB = subscribeBookings(loadSlots);
+    return () => {
+      unsubA();
+      unsubB();
+    };
   }, [selectedDate]);
 
   const toggleAddon = (name) => {
@@ -59,6 +70,10 @@ export default function CreateBooking() {
     if (!user) return;
     setLoading(true);
     try {
+      const available = await isSlotBookable(data.event_date, data.time_slot);
+      if (!available) {
+        throw new Error("That time slot is no longer available. Please pick another.");
+      }
       const addonRows = selectedAddons.map((name) => {
         const a = ADDONS_CATALOG.find((x) => x.name === name);
         return { name, price: a?.price || 0 };
@@ -75,7 +90,6 @@ export default function CreateBooking() {
         selected_addons: addonRows,
         addons_total: addonsTotal,
       });
-      await incrementBookedCount(data.event_date, data.time_slot);
       navigate(`/client-bookings/${booking.id}`);
     } catch (err) {
       Swal.fire({ icon: "error", title: "Booking failed", text: err.message });

@@ -1,7 +1,30 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
+import { DEFAULT_TIME_SLOTS } from "../lib/constants";
 
-export const TIME_SLOTS = ["09:00", "11:00", "13:00", "15:00", "17:00"];
+export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
+
+let cachedTimeSlots = null;
+
+export function clearTimeSlotsCache() {
+  cachedTimeSlots = null;
+}
+
+export async function getTimeSlots() {
+  if (cachedTimeSlots?.length) return cachedTimeSlots;
+  try {
+    const settings = await getStudioSettings();
+    const slots = settings?.time_slots;
+    if (Array.isArray(slots) && slots.length) {
+      cachedTimeSlots = slots.map(String);
+      return cachedTimeSlots;
+    }
+  } catch {
+    /* use defaults */
+  }
+  cachedTimeSlots = [...DEFAULT_TIME_SLOTS];
+  return cachedTimeSlots;
+}
 
 export async function getStudioSettings() {
   const { data, error } = await supabase.from("studio_settings").select("*").eq("id", 1).single();
@@ -12,6 +35,7 @@ export async function getStudioSettings() {
 export async function updateStudioSettings(updates) {
   const { data, error } = await supabase.from("studio_settings").update(updates).eq("id", 1).select().single();
   if (error) throw error;
+  if (updates.time_slots) clearTimeSlotsCache();
   return data;
 }
 
@@ -24,7 +48,18 @@ export async function getAvailability(startDate, endDate) {
   return data || [];
 }
 
-export async function ensureMonthAvailability(yearMonth, slots = TIME_SLOTS) {
+export async function syncMonthAvailability(yearMonth) {
+  const { error } = await supabase.rpc("sync_month_availability", { p_year_month: yearMonth });
+  if (error) console.warn("sync_month_availability:", error.message);
+}
+
+export async function ensureMonthAvailability(yearMonth, slots) {
+  const timeSlots = slots || (await getTimeSlots());
+  const { error: rpcError } = await supabase.rpc("ensure_month_availability", { p_year_month: yearMonth });
+  if (!rpcError) {
+    return getAvailability(`${yearMonth}-01`, monthEnd(yearMonth));
+  }
+
   const [y, m] = yearMonth.split("-").map(Number);
   const days = new Date(y, m, 0).getDate();
   const end = `${yearMonth}-${String(days).padStart(2, "0")}`;
@@ -34,7 +69,7 @@ export async function ensureMonthAvailability(yearMonth, slots = TIME_SLOTS) {
   const missing = [];
   for (let d = 1; d <= days; d++) {
     const date = `${yearMonth}-${String(d).padStart(2, "0")}`;
-    for (const slot of slots) {
+    for (const slot of timeSlots) {
       if (!existingKeys.has(`${date}|${slot}`)) {
         missing.push({
           avail_date: date,
@@ -52,7 +87,14 @@ export async function ensureMonthAvailability(yearMonth, slots = TIME_SLOTS) {
     if (error) throw error;
   }
 
+  await syncMonthAvailability(yearMonth);
   return getAvailability(`${yearMonth}-01`, end);
+}
+
+function monthEnd(yearMonth) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const days = new Date(y, m, 0).getDate();
+  return `${yearMonth}-${String(days).padStart(2, "0")}`;
 }
 
 export async function upsertAvailability(rows) {
@@ -60,7 +102,22 @@ export async function upsertAvailability(rows) {
   if (error) throw error;
 }
 
-export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
+export async function syncAvailabilitySlot(date, timeSlot) {
+  const { error } = await supabase.rpc("sync_availability_slot", {
+    p_date: date,
+    p_time_slot: timeSlot,
+  });
+  if (error) console.warn("sync_availability_slot:", error.message);
+}
+
+/** @deprecated Trigger syncs automatically; kept for compatibility */
+export async function incrementBookedCount(date, timeSlot) {
+  await syncAvailabilitySlot(date, timeSlot);
+}
+
+export async function updateAvailabilitySlot(date, timeSlot, { is_enabled, capacity }) {
+  await syncAvailabilitySlot(date, timeSlot);
+
   const { data: existing } = await supabase
     .from("studio_availability")
     .select("*")
@@ -71,8 +128,8 @@ export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
   const row = {
     avail_date: date,
     time_slot: timeSlot,
-    is_enabled: isEnabled,
-    capacity: existing?.capacity ?? 2,
+    is_enabled: is_enabled ?? existing?.is_enabled ?? true,
+    capacity: capacity ?? existing?.capacity ?? 2,
     booked_count: existing?.booked_count ?? 0,
   };
 
@@ -80,11 +137,16 @@ export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
   if (error) throw error;
 }
 
-export async function setDayAvailability(date, isEnabled, slots = TIME_SLOTS) {
+export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
+  await updateAvailabilitySlot(date, timeSlot, { is_enabled: isEnabled });
+}
+
+export async function setDayAvailability(date, isEnabled, slots) {
+  const timeSlots = slots || (await getTimeSlots());
   const existing = await getAvailability(date, date);
   const bySlot = Object.fromEntries(existing.map((r) => [r.time_slot, r]));
 
-  const rows = slots.map((slot) => ({
+  const rows = timeSlots.map((slot) => ({
     avail_date: date,
     time_slot: slot,
     is_enabled: isEnabled,
@@ -96,22 +158,18 @@ export async function setDayAvailability(date, isEnabled, slots = TIME_SLOTS) {
   if (error) throw error;
 }
 
-export async function incrementBookedCount(date, timeSlot) {
-  const { data: slot } = await supabase
-    .from("studio_availability")
-    .select("*")
-    .eq("avail_date", date)
-    .eq("time_slot", timeSlot)
-    .single();
-
-  if (slot) {
-    await supabase
-      .from("studio_availability")
-      .update({ booked_count: slot.booked_count + 1 })
-      .eq("id", slot.id);
-  }
+export async function isSlotBookable(date, timeSlot) {
+  await syncAvailabilitySlot(date, timeSlot);
+  const rows = await getAvailability(date, date);
+  const slot = rows.find((r) => r.time_slot === timeSlot);
+  if (!slot) return false;
+  return slot.is_enabled !== false && slot.booked_count < slot.capacity;
 }
 
 export function subscribeAvailability(onChange) {
   return subscribeTableChanges("studio_availability", onChange);
+}
+
+export function subscribeBookings(onChange) {
+  return subscribeTableChanges("bookings", onChange);
 }

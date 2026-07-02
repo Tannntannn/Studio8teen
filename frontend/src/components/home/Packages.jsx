@@ -42,20 +42,20 @@ function Packages() {
         </ScrollReveal>
 
         <ScrollReveal delay={200}>
-          <div className="flex gap-5 overflow-x-auto pb-4 snap-x snap-mandatory sm:grid sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 sm:overflow-visible sm:pb-0">
+          <div className="flex gap-5 overflow-x-auto pb-6 pt-4 snap-x snap-mandatory sm:grid sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 sm:overflow-visible sm:pb-0 sm:pt-0">
             {packages.map((pkg) => (
               <div
                 key={pkg.id}
-                className={`relative flex-shrink-0 w-[85vw] max-w-[320px] snap-center sm:w-auto sm:max-w-none bg-white rounded-2xl p-6 transition-all duration-500 hover:-translate-y-2 ${
-                  pkg.is_popular ? "shadow-xl ring-2 ring-[#A98B75] xl:scale-105" : "shadow-sm hover:shadow-xl"
+                className={`relative flex-shrink-0 w-[85vw] max-w-[320px] snap-center sm:w-auto sm:max-w-none bg-white rounded-2xl p-6 transition-all duration-500 hover:-translate-y-2 overflow-visible ${
+                  pkg.is_popular ? "shadow-xl ring-2 ring-[#A98B75] sm:xl:scale-105 pt-10 sm:pt-6 sm:mt-2" : "shadow-sm hover:shadow-xl"
                 }`}
               >
                 {pkg.is_popular && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 text-xs font-bold uppercase tracking-wider rounded-full bg-[#A98B75] text-white whitespace-nowrap shadow-lg shadow-[#A98B75]/30">
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 px-4 py-1 text-xs font-bold uppercase tracking-wider rounded-full bg-[#A98B75] text-white whitespace-nowrap shadow-lg shadow-[#A98B75]/30 z-10">
                     Most Popular
                   </span>
                 )}
-                <h3 className="text-lg font-bold text-gray-800 mt-2">{pkg.name}</h3>
+                <h3 className={`text-lg font-bold text-gray-800 ${pkg.is_popular ? "" : "mt-2"}`}>{pkg.name}</h3>
                 <div className="mt-4">
                   <span className="text-xs text-gray-400 uppercase tracking-wider">Starting at</span>
                   <div className="text-2xl font-bold text-[#A98B75] mt-1">₱{Number(pkg.price).toLocaleString()}</div>

@@ -2,6 +2,7 @@ import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
 import { CANCELLATION_FEE } from "../lib/constants";
 import { createNotification } from "./notifications";
+import { syncAvailabilitySlot } from "./settings";
 async function getCurrentUserId() {
   const {
     data: { user },
@@ -125,18 +126,10 @@ export async function cancelBooking(id, reason, feeAmount = CANCELLATION_FEE) {
 
 async function releaseBookingSlot(eventDate, timeSlot) {
   if (!eventDate || !timeSlot) return;
-  const { data: slot } = await supabase
-    .from("studio_availability")
-    .select("id, booked_count")
-    .eq("avail_date", eventDate)
-    .eq("time_slot", timeSlot)
-    .maybeSingle();
-
-  if (slot && slot.booked_count > 0) {
-    await supabase
-      .from("studio_availability")
-      .update({ booked_count: slot.booked_count - 1 })
-      .eq("id", slot.id);
+  try {
+    await syncAvailabilitySlot(eventDate, timeSlot);
+  } catch {
+    /* DB trigger may handle sync */
   }
 }
 
@@ -238,19 +231,7 @@ export async function deleteBooking(id) {
   if (error) throw error;
 
   if (booking.event_date && booking.time_slot) {
-    const { data: slot } = await supabase
-      .from("studio_availability")
-      .select("id, booked_count")
-      .eq("avail_date", booking.event_date)
-      .eq("time_slot", booking.time_slot)
-      .maybeSingle();
-
-    if (slot && slot.booked_count > 0) {
-      await supabase
-        .from("studio_availability")
-        .update({ booked_count: slot.booked_count - 1 })
-        .eq("id", slot.id);
-    }
+    await releaseBookingSlot(booking.event_date, booking.time_slot);
   }
 }
 

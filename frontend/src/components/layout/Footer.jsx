@@ -1,5 +1,6 @@
 import logo from "../../assets/StudioLogo.jpg";
 import { FaFacebookF, FaHeart } from "react-icons/fa";
+import { STUDIO_PHONE, STUDIO_PHONE_DISPLAY } from "../../lib/constants";
 
 function Footer() {
   const currentYear = new Date().getFullYear();
@@ -53,7 +54,11 @@ function Footer() {
               Contact
             </h3>
             <ul className="space-y-3 text-gray-400 text-sm">
-              <li>+63 XXX XXX XXXX</li>
+              <li>
+                <a href={`tel:${STUDIO_PHONE}`} className="hover:text-[#A98B75] transition">
+                  {STUDIO_PHONE_DISPLAY}
+                </a>
+              </li>
               <li>studio8teen@email.com</li>
             </ul>
           </div>

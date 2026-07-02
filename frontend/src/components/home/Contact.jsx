@@ -6,6 +6,7 @@ import {
   FaArrowRight,
 } from "react-icons/fa";
 import ScrollReveal from "../ui/ScrollReveal";
+import { STUDIO_PHONE, STUDIO_PHONE_DISPLAY } from "../../lib/constants";
 
 function Contact() {
   return (
@@ -75,7 +76,9 @@ function Contact() {
               </h3>
 
               <p className="text-white/80 mt-1 text-sm">
-                +63 XXX XXX XXXX
+                <a href={`tel:${STUDIO_PHONE}`} className="hover:text-white transition">
+                  {STUDIO_PHONE_DISPLAY}
+                </a>
               </p>
             </div>
 
