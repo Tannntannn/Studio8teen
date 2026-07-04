@@ -2,18 +2,30 @@ import { useEffect, useMemo, useState } from "react";
 import { FaPalette, FaRedo } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import MoodBoardDisplay from "../../components/moodboard/MoodBoardDisplay";
-import { getActiveThemes, getThemeById } from "../../services/moodBoardThemes";
-import { EVENT_TYPES } from "../../lib/moodBoardOptions";
-import { filterThemesByEvent, getThemeEventLabels } from "../../lib/themeMatching";
-import { ALL_THEMES_VALUE, mergeThemesForEvent } from "../../lib/mergeEventMoodBoard";
+import { getActiveThemes } from "../../services/moodBoardThemes";
+import {
+  EVENT_TYPES,
+  MOOD_OPTIONS,
+  LOCATION_TYPES,
+  PHOTOGRAPHY_STYLES,
+} from "../../lib/moodBoardOptions";
+import { filterThemesByEvent } from "../../lib/themeMatching";
+import { generateMoodBoard, getThemeNamesForEvent } from "../../lib/moodBoardEngine";
+
+const EMPTY_PREFS = {
+  eventType: "",
+  theme: "",
+  mood: "",
+  locationType: "",
+  photographyStyle: "",
+};
 
 export default function MoodBoardGenerator() {
   const [themes, setThemes] = useState([]);
   const [loadingThemes, setLoadingThemes] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
-  const [eventType, setEventType] = useState("");
-  const [themeId, setThemeId] = useState("");
+  const [prefs, setPrefs] = useState(EMPTY_PREFS);
   const [sessionNotes, setSessionNotes] = useState("");
 
   const [generating, setGenerating] = useState(false);
@@ -29,68 +41,50 @@ export default function MoodBoardGenerator() {
       .finally(() => setLoadingThemes(false));
   }, []);
 
-  const filteredThemes = useMemo(
-    () => filterThemesByEvent(themes, eventType),
-    [themes, eventType]
+  const themeOptions = useMemo(
+    () => getThemeNamesForEvent(themes, prefs.eventType),
+    [themes, prefs.eventType]
   );
 
-  const browseAll = themeId === ALL_THEMES_VALUE;
-  const selectedTheme = browseAll ? null : filteredThemes.find((t) => t.id === themeId);
-
-  const totalImages = useMemo(
+  const candidateImageCount = useMemo(
     () =>
-      filteredThemes.reduce((n, t) => n + (t.inspiration_images?.length || 0), 0),
-    [filteredThemes]
+      filterThemesByEvent(themes, prefs.eventType).reduce(
+        (n, t) => n + (t.inspiration_images?.length || 0),
+        0
+      ),
+    [themes, prefs.eventType]
   );
 
-  // Reset theme when it no longer matches the event; default to browse-all.
-  useEffect(() => {
-    if (!eventType) {
-      setThemeId("");
-      return;
-    }
-    if (themeId && themeId !== ALL_THEMES_VALUE && !filteredThemes.some((t) => t.id === themeId)) {
-      setThemeId(filteredThemes.length ? ALL_THEMES_VALUE : "");
-    }
-  }, [eventType, filteredThemes, themeId]);
+  const setPref = (key, value) => setPrefs((p) => ({ ...p, [key]: value }));
 
   const handleEventChange = (value) => {
-    setEventType(value);
-    setThemeId(value && filterThemesByEvent(themes, value).length ? ALL_THEMES_VALUE : "");
+    // Reset the optional theme when the event changes (theme list depends on it).
+    setPrefs((p) => ({ ...p, eventType: value, theme: "" }));
   };
 
-  const canGenerate =
-    Boolean(eventType) &&
-    (browseAll ? filteredThemes.length > 0 : Boolean(themeId));
-
-  const handleGenerate = async (e) => {
+  const handleGenerate = (e) => {
     e.preventDefault();
     setGenerateError(null);
 
-    if (!eventType) {
+    if (!prefs.eventType) {
       setGenerateError("Please select your event type first.");
       return;
     }
 
     setGenerating(true);
     try {
-      if (browseAll) {
-        const merged = mergeThemesForEvent(themes, eventType);
-        if (!merged) {
-          setGenerateError(`No inspiration available for ${eventType} yet.`);
-          return;
-        }
-        setGenerated(merged);
-        setGeneratedMeta({ eventType, sessionNotes: sessionNotes.trim() || null, isAggregated: true });
-      } else {
-        if (!themeId) {
-          setGenerateError("Pick a theme or choose “Browse all inspiration”.");
-          return;
-        }
-        const theme = await getThemeById(themeId);
-        setGenerated(theme);
-        setGeneratedMeta({ eventType, sessionNotes: sessionNotes.trim() || null, isAggregated: false });
+      const result = generateMoodBoard(themes, prefs, { topN: 3 });
+      if (result.error) {
+        setGenerateError(result.error);
+        setGenerated(null);
+        return;
       }
+      setGenerated(result.moodBoard);
+      setGeneratedMeta({
+        eventType: prefs.eventType,
+        sessionNotes: sessionNotes.trim() || null,
+        scoreSummary: result.scoreSummary,
+      });
     } catch (err) {
       setGenerateError(err.message || "Failed to generate mood board.");
       setGenerated(null);
@@ -105,6 +99,8 @@ export default function MoodBoardGenerator() {
     setGenerateError(null);
   };
 
+  const noImagesForEvent = Boolean(prefs.eventType) && candidateImageCount === 0;
+
   return (
     <ClientLayout>
       <div className="max-w-4xl mx-auto w-full">
@@ -114,7 +110,8 @@ export default function MoodBoardGenerator() {
           </div>
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Mood Board Generator</h1>
           <p className="mt-2 text-gray-500 max-w-xl mx-auto">
-            Pick your event, then browse all inspiration or narrow down to one photography style.
+            Tell us about your event and preferences. We&apos;ll match the studio&apos;s inspiration
+            images and build a personalized mood board with the best-fitting looks.
           </p>
         </div>
 
@@ -139,14 +136,19 @@ export default function MoodBoardGenerator() {
 
         {!loadingThemes && !loadError && themes.length > 0 && !generated && (
           <form onSubmit={handleGenerate} className="bg-white rounded-2xl border border-[#E8E1DA] p-6 md:p-8 space-y-5 shadow-sm">
-            <h2 className="font-semibold text-[#5B4636] text-lg">Before you generate</h2>
+            <div>
+              <h2 className="font-semibold text-[#5B4636] text-lg">Tell us your preferences</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Only the event type is required. Add optional preferences to fine-tune your recommendations.
+              </p>
+            </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Event type <span className="text-red-500">*</span>
               </label>
               <select
-                value={eventType}
+                value={prefs.eventType}
                 onChange={(e) => handleEventChange(e.target.value)}
                 required
                 className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
@@ -156,62 +158,86 @@ export default function MoodBoardGenerator() {
                   <option key={ev} value={ev}>{ev}</option>
                 ))}
               </select>
+              {prefs.eventType && !noImagesForEvent && (
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {candidateImageCount} inspiration photo{candidateImageCount !== 1 ? "s" : ""} available for {prefs.eventType}.
+                </p>
+              )}
+              {noImagesForEvent && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2">
+                  No inspiration images are tagged for {prefs.eventType} yet. Try another event type, or contact the studio.
+                </p>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Photography theme <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <select
-                value={themeId}
-                onChange={(e) => setThemeId(e.target.value)}
-                disabled={!eventType}
-                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
-              >
-                <option value="">
-                  {!eventType
-                    ? "Select an event type first"
-                    : filteredThemes.length
-                      ? "Choose how to browse"
-                      : `No themes for ${eventType} yet`}
-                </option>
-                {eventType && filteredThemes.length > 0 && (
-                  <option value={ALL_THEMES_VALUE}>
-                    Browse all {eventType} inspiration ({totalImages} photo{totalImages !== 1 ? "s" : ""})
-                  </option>
-                )}
-                {filteredThemes.length > 0 && (
-                  <option disabled>──────────────</option>
-                )}
-                {filteredThemes.map((t) => {
-                  const labels = getThemeEventLabels(t);
-                  const imgCount = (t.inspiration_images || []).length;
-                  const suffix = labels.length ? ` — ${labels.join(", ")}` : "";
-                  const photos = imgCount ? ` (${imgCount} photo${imgCount !== 1 ? "s" : ""})` : "";
-                  return (
-                    <option key={t.id} value={t.id}>
-                      {t.name}{suffix}{photos}
-                    </option>
-                  );
-                })}
-              </select>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Theme <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={prefs.theme}
+                  onChange={(e) => setPref("theme", e.target.value)}
+                  disabled={!prefs.eventType || themeOptions.length === 0}
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">No preference</option>
+                  {themeOptions.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
 
-              {eventType && filteredThemes.length === 0 && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2">
-                  No themes are tagged for {eventType} yet. Try another event type, or contact the studio.
-                </p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Mood <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={prefs.mood}
+                  onChange={(e) => setPref("mood", e.target.value)}
+                  disabled={!prefs.eventType}
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">No preference</option>
+                  {MOOD_OPTIONS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
 
-              {browseAll && filteredThemes.length > 0 && (
-                <p className="text-xs text-[#5B4636] bg-[#A98B75]/10 border border-[#A98B75]/20 rounded-lg px-3 py-2 mt-2">
-                  Shows every inspiration image and recommendation from all {filteredThemes.length}{" "}
-                  {eventType} theme{filteredThemes.length !== 1 ? "s" : ""} — no need to pick just one.
-                </p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Location type <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={prefs.locationType}
+                  onChange={(e) => setPref("locationType", e.target.value)}
+                  disabled={!prefs.eventType}
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">No preference</option>
+                  {LOCATION_TYPES.map((l) => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
 
-              {selectedTheme && (
-                <p className="text-xs text-gray-500 mt-2">{selectedTheme.description}</p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photography style <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={prefs.photographyStyle}
+                  onChange={(e) => setPref("photographyStyle", e.target.value)}
+                  disabled={!prefs.eventType}
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">No preference</option>
+                  {PHOTOGRAPHY_STYLES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -220,7 +246,7 @@ export default function MoodBoardGenerator() {
                 value={sessionNotes}
                 onChange={(e) => setSessionNotes(e.target.value)}
                 rows={3}
-                placeholder="Share any preferences, locations, or vibe you're going for..."
+                placeholder="Share any other preferences or vibe you're going for..."
                 className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]"
               />
             </div>
@@ -231,14 +257,10 @@ export default function MoodBoardGenerator() {
 
             <button
               type="submit"
-              disabled={generating || !canGenerate}
+              disabled={generating || !prefs.eventType || noImagesForEvent}
               className="w-full py-3.5 rounded-xl bg-[#A98B75] text-white font-medium hover:bg-[#8a7260] disabled:opacity-50 transition"
             >
-              {generating
-                ? "Generating mood board..."
-                : browseAll
-                  ? `Generate all ${eventType} inspiration`
-                  : "Generate Mood Board"}
+              {generating ? "Generating mood board..." : "Generate Mood Board"}
             </button>
           </form>
         )}
@@ -258,7 +280,8 @@ export default function MoodBoardGenerator() {
               theme={generated}
               eventType={generatedMeta?.eventType}
               sessionNotes={generatedMeta?.sessionNotes}
-              isAggregated={generatedMeta?.isAggregated}
+              scoreSummary={generatedMeta?.scoreSummary}
+              isPersonalized
             />
           </div>
         )}

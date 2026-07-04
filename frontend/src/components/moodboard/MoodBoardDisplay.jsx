@@ -67,7 +67,7 @@ function Attribute({ icon: Icon, label, value }) {
   );
 }
 
-export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAggregated }) {
+export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAggregated, isPersonalized, scoreSummary }) {
   const [lightboxIndex, setLightboxIndex] = useState(null);
   const images = theme.inspiration_images || [];
   const tags = asStringArray(theme.tags);
@@ -88,13 +88,17 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
     <div className="space-y-6 animate-[pageFadeIn_0.35s_ease-out]">
       <div className="bg-gradient-to-br from-[#5B4636] to-[#A98B75] rounded-2xl p-6 md:p-8 text-white text-center">
         <p className="text-white/70 text-sm uppercase tracking-wider mb-1">
-          {isAggregated || theme.is_aggregated ? "Event mood board" : "Your mood board"}
+          {isPersonalized || theme.is_personalized
+            ? "Your personalized mood board"
+            : isAggregated || theme.is_aggregated
+              ? "Event mood board"
+              : "Your mood board"}
         </p>
         <h2 className="heading-serif text-3xl md:text-4xl font-bold">{theme.name}</h2>
         {theme.description && (
           <p className="mt-3 text-white/90 max-w-2xl mx-auto text-sm md:text-base">{theme.description}</p>
         )}
-        {(isAggregated || theme.is_aggregated) && sourceThemes.length > 0 && (
+        {(isAggregated || theme.is_aggregated || isPersonalized || theme.is_personalized) && sourceThemes.length > 0 && (
           <div className="mt-4 flex flex-wrap justify-center gap-1.5">
             {sourceThemes.map((name) => (
               <span
@@ -120,6 +124,39 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
         )}
       </div>
 
+      {/* Personalized match summary */}
+      {scoreSummary && scoreSummary.items?.length > 0 && (
+        <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5">
+          <h3 className="flex items-center gap-2 font-semibold text-[#5B4636] mb-1">
+            <FaTags className="text-[#A98B75]" size={16} /> Why these images
+          </h3>
+          <p className="text-xs text-gray-500 mb-4">
+            Ranked {scoreSummary.selectedCount} of {scoreSummary.totalCandidates} inspiration photo
+            {scoreSummary.totalCandidates !== 1 ? "s" : ""} by how well they match your preferences.
+          </p>
+          <ul className="space-y-2">
+            {scoreSummary.items.map((item, i) => (
+              <li
+                key={item.id || i}
+                className="flex items-center justify-between gap-3 bg-[#F8F6F3] rounded-xl px-4 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[#5B4636] truncate">
+                    <span className="text-[#A98B75] font-semibold">#{i + 1}</span> {item.themeName || "Inspiration"}
+                  </p>
+                  <p className="text-[11px] text-gray-500 truncate">
+                    Matched: {(item.matched || []).join(", ") || "Event type"}
+                  </p>
+                </div>
+                <span className="flex-shrink-0 text-xs font-semibold text-white bg-[#A98B75] rounded-full px-2.5 py-1">
+                  {item.score} pts
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Theme attributes */}
       {(eventType || theme.event_type || theme.photography_style || theme.mood || theme.location_type) && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -137,8 +174,17 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
       {images.length > 0 ? (
         <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5">
           <h3 className="font-semibold text-[#5B4636] mb-1">
-            {isAggregated || theme.is_aggregated ? "All inspiration photos" : "Inspiration gallery"}
+            {isPersonalized || theme.is_personalized
+              ? "Top matched inspiration"
+              : isAggregated || theme.is_aggregated
+                ? "All inspiration photos"
+                : "Inspiration gallery"}
           </h3>
+          {(isPersonalized || theme.is_personalized) && (
+            <p className="text-xs text-gray-500 mb-4">
+              The {images.length} best-matching photo{images.length !== 1 ? "s" : ""} for your {eventType || theme.event_type} session.
+            </p>
+          )}
           {(isAggregated || theme.is_aggregated) && (
             <p className="text-xs text-gray-500 mb-4">
               {images.length} photo{images.length !== 1 ? "s" : ""} from every {eventType || theme.event_type} style
@@ -158,6 +204,11 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
                   loading="lazy"
                   className="w-full h-full object-cover"
                 />
+                {(isPersonalized || theme.is_personalized) && typeof img.score === "number" && (
+                  <span className="absolute top-1.5 right-1.5 text-[10px] font-semibold text-white bg-[#A98B75]/90 rounded-full px-2 py-0.5 shadow">
+                    {img.score} pts
+                  </span>
+                )}
                 {img.themeName && (
                   <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-2 text-[10px] text-white font-medium truncate opacity-0 group-hover:opacity-100 transition">
                     {img.themeName}
