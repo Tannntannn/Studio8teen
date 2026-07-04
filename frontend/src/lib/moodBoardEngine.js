@@ -1,4 +1,5 @@
 import { asStringArray } from "../services/moodBoardThemes";
+import { asCategoryValues } from "../services/moodBoardCategories";
 import { filterThemesByEvent } from "./themeMatching";
 
 /**
@@ -30,6 +31,19 @@ function textMatches(a, b) {
   const nb = norm(b);
   if (!na || !nb) return false;
   return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+/** Score each selected preference that appears on the theme (partial credit per match). */
+function scoreMultiCategoryMatch(prefsValue, themeValue, weight, label) {
+  const prefs = asCategoryValues(prefsValue);
+  const themeVals = asCategoryValues(themeValue);
+  if (!prefs.length || !themeVals.length) return { score: 0, matched: [] };
+
+  const hits = prefs.filter((pref) => themeVals.some((tv) => textMatches(tv, pref)));
+  return {
+    score: hits.length * weight,
+    matched: hits.map((h) => `${label}: ${h}`),
+  };
 }
 
 /** Most frequent non-empty value; ties resolved by first appearance (rank order). */
@@ -107,18 +121,24 @@ export function scoreCandidate(candidate, prefs) {
       matched.push("Theme");
     }
   }
-  if (prefs.mood && textMatches(theme.mood, prefs.mood)) {
-    score += SCORE_WEIGHTS.mood;
-    matched.push("Mood");
-  }
+
+  const moodMatch = scoreMultiCategoryMatch(prefs.mood, theme.mood, SCORE_WEIGHTS.mood, "Mood");
+  score += moodMatch.score;
+  matched.push(...moodMatch.matched);
+
   if (prefs.locationType && textMatches(theme.location_type, prefs.locationType)) {
     score += SCORE_WEIGHTS.location;
     matched.push("Location");
   }
-  if (prefs.photographyStyle && textMatches(theme.photography_style, prefs.photographyStyle)) {
-    score += SCORE_WEIGHTS.photographyStyle;
-    matched.push("Photography style");
-  }
+
+  const styleMatch = scoreMultiCategoryMatch(
+    prefs.photographyStyle,
+    theme.photography_style,
+    SCORE_WEIGHTS.photographyStyle,
+    "Photography style"
+  );
+  score += styleMatch.score;
+  matched.push(...styleMatch.matched);
 
   return { ...candidate, score, matched };
 }
@@ -132,8 +152,10 @@ export function getThemeNamesForEvent(themes, eventType) {
 function buildDescription(prefs, selectedCount) {
   const parts = [];
   if (prefs.theme) parts.push(prefs.theme.toLowerCase());
-  if (prefs.mood) parts.push(`${prefs.mood.toLowerCase()} mood`);
-  if (prefs.photographyStyle) parts.push(`${prefs.photographyStyle.toLowerCase()} style`);
+  const moods = asCategoryValues(prefs.mood);
+  if (moods.length) parts.push(`${moods.map((m) => m.toLowerCase()).join(" & ")} mood`);
+  const styles = asCategoryValues(prefs.photographyStyle);
+  if (styles.length) parts.push(`${styles.map((s) => s.toLowerCase()).join(" & ")} style`);
   if (prefs.locationType) parts.push(prefs.locationType.toLowerCase());
   const prefText = parts.length ? ` matched to your ${parts.join(", ")} preferences` : "";
   return `A curated ${prefs.eventType} mood board — the top ${selectedCount} inspiration ${selectedCount === 1 ? "image" : "images"}${prefText}.`;
@@ -171,8 +193,11 @@ export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) 
 
   const lightingStyle = mostCommon(selectedThemes.map((t) => t.lighting_style));
   const editingStyle = mostCommon(selectedThemes.map((t) => t.editing_style));
-  const photographyStyle = mostCommon(selectedThemes.map((t) => t.photography_style));
-  const mood = mostCommon(selectedThemes.map((t) => t.mood));
+  const photographyStyle = rankByFrequency(
+    selectedThemes.map((t) => asCategoryValues(t.photography_style)),
+    4
+  );
+  const mood = rankByFrequency(selectedThemes.map((t) => asCategoryValues(t.mood)), 4);
   const locationType = mostCommon(selectedThemes.map((t) => t.location_type));
 
   const sourceThemeNames = [...new Set(top.map((c) => c.themeName).filter(Boolean))];

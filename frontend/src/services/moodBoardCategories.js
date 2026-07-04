@@ -85,6 +85,33 @@ export function normCategory(value) {
   return String(value || "").toLowerCase().trim();
 }
 
+/** Normalize legacy string or JSON array values into a string array. */
+export function asCategoryValues(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String);
+      } catch {
+        /* fall through */
+      }
+    }
+    if (trimmed.includes(",")) {
+      return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    return [trimmed];
+  }
+  return [];
+}
+
+export function formatCategoryList(value) {
+  const list = asCategoryValues(value);
+  return list.length ? list.join(" · ") : "";
+}
+
 /** Pick the closest admin-defined label from a list of allowed options. */
 export function pickFromCategoryList(raw, options) {
   if (!raw || !options?.length) return "";
@@ -119,11 +146,17 @@ export function normalizeCategoryOptions(input) {
 export function clampSuggestionsToCategories(suggestions, categoryOptions) {
   if (!suggestions) return suggestions;
   const opts = normalizeCategoryOptions(categoryOptions);
+  const clampList = (values, allowed) =>
+    asCategoryValues(values)
+      .map((v) => pickFromCategoryList(v, allowed))
+      .filter(Boolean)
+      .filter((v, i, arr) => arr.indexOf(v) === i);
+
   return {
     ...suggestions,
     theme: pickFromCategoryList(suggestions.theme, opts.theme),
-    mood: pickFromCategoryList(suggestions.mood, opts.mood),
+    mood: clampList(suggestions.mood, opts.mood),
     location_type: pickFromCategoryList(suggestions.location_type, opts.location_type),
-    photography_style: pickFromCategoryList(suggestions.photography_style, opts.photography_style),
+    photography_style: clampList(suggestions.photography_style, opts.photography_style),
   };
 }

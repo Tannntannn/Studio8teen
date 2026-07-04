@@ -6,6 +6,7 @@ import {
   normalizeCategoryOptions,
   pickFromCategoryHints,
   pickFromCategoryList,
+  asCategoryValues,
 } from "../services/moodBoardCategories";
 
 function loadImage(src) {
@@ -141,22 +142,34 @@ function analyzePixels(data) {
   };
 }
 
+function collectCategoryMatches(hints, options, limit = 3) {
+  const matches = [];
+  for (const hint of hints) {
+    if (!hint) continue;
+    const match = pickFromCategoryList(hint, options) || pickFromCategoryHints([hint], options);
+    if (match && !matches.includes(match)) matches.push(match);
+    if (matches.length >= limit) break;
+  }
+  return matches;
+}
+
 function deriveSuggestions(m, categoryOptions) {
   const opts = normalizeCategoryOptions(categoryOptions);
   const { brightness, saturation, warmth, greenness, contrast, dominant } = m;
 
-  const mood = pickFromCategoryHints(
+  const mood = collectCategoryMatches(
     [
       brightness > 0.62 && saturation < 0.35 ? "joyful" : "",
       brightness < 0.38 ? "dramatic" : "",
       contrast > 0.55 ? "dramatic" : "",
       warmth > 0.08 ? "romantic" : "",
-      warmth < -0.04 ? "formal" : "",
+      warmth > 0.08 ? "cozy" : "",
       saturation > 0.5 ? "playful" : "",
       "natural",
-      "cozy",
-    ].filter(Boolean),
-    opts.mood
+      "formal",
+    ],
+    opts.mood,
+    3
   );
 
   const theme = pickFromCategoryHints(
@@ -187,7 +200,7 @@ function deriveSuggestions(m, categoryOptions) {
     opts.location_type
   );
 
-  const style = pickFromCategoryHints(
+  const style = collectCategoryMatches(
     [
       contrast > 0.55 ? "editorial" : "",
       brightness < 0.4 ? "cinematic" : "",
@@ -195,8 +208,9 @@ function deriveSuggestions(m, categoryOptions) {
       "portrait",
       "fine art",
       "traditional",
-    ].filter(Boolean),
-    opts.photography_style
+    ],
+    opts.photography_style,
+    3
   );
 
   // Lighting
@@ -209,9 +223,9 @@ function deriveSuggestions(m, categoryOptions) {
 
   // Editing
   let editing;
-  if (pickFromCategoryList("joyful", opts.mood) === mood || pickFromCategoryList("natural", opts.mood) === mood) {
+  if (pickFromCategoryList("joyful", opts.mood) && mood.includes(pickFromCategoryList("joyful", opts.mood))) {
     editing = "Light and airy edit, lifted shadows, soft pastel tones.";
-  } else if (pickFromCategoryList("dramatic", opts.mood) === mood) {
+  } else if (pickFromCategoryList("dramatic", opts.mood) && mood.includes(pickFromCategoryList("dramatic", opts.mood))) {
     editing = "Moody edit, rich shadows, desaturated cool tones.";
   } else if (warmth > 0.08) editing = "Warm tones, creamy highlights, subtle film grain.";
   else if (contrast > 0.55) editing = "High-contrast edit, punchy colors, crisp detail.";
@@ -229,8 +243,8 @@ function deriveSuggestions(m, categoryOptions) {
   if (contrast > 0.55) tagSet.add("high contrast");
   if (greenness > 0.05) tagSet.add("greenery");
   if (dominant) tagSet.add(`${hueName(dominant.h)} accents`);
-  tagSet.add(mood.toLowerCase().replace(/ & /g, " "));
-  tagSet.add(theme.toLowerCase());
+  tagSet.add(mood[0]?.toLowerCase() || "");
+  tagSet.add(theme);
 
   return {
     mood,

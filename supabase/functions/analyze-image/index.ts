@@ -87,8 +87,8 @@ Return JSON:
       "event_type": string (one of: ${EVENT_TYPES.join(", ")} or ""),
       "event_confidence": "high" | "medium" | "low",
       "theme": string (MUST be exactly one of: ${formatCategoryList(opts.theme)} — or ""),
-      "mood": string (MUST be exactly one of: ${formatCategoryList(opts.mood)} — or ""),
-      "photography_style": string (MUST be exactly one of: ${formatCategoryList(opts.photography_style)} — or ""),
+      "mood": string[] (one or more of: ${formatCategoryList(opts.mood)} — or [] if unsure),
+      "photography_style": string[] (one or more of: ${formatCategoryList(opts.photography_style)} — or [] if unsure),
       "location_type": string (MUST be exactly one of: ${formatCategoryList(opts.location_type)} — or ""),
       "lighting_style": string,
       "editing_style": string,
@@ -102,8 +102,8 @@ Return JSON:
   "merged": {
     "theme": string,
     "event_type": string,
-    "photography_style": string,
-    "mood": string,
+    "photography_style": string[],
+    "mood": string[],
     "location_type": string,
     "lighting_style": string,
     "editing_style": string,
@@ -126,7 +126,7 @@ CLASSIFICATION RULES (strict):
 • CASUAL PORTRAIT: everyday wear, no celebration props
 • FORMAL PORTRAIT: studio pose, evening wear, no event props
 
-If unsure of event_type use "" and event_confidence "low". Do NOT invent category labels outside the lists above.`;
+If unsure of event_type use "" and event_confidence "low". mood and photography_style must be JSON arrays using ONLY exact labels from the lists above. Do NOT invent category labels outside the lists above.`;
 }
 
 const EVENT_THEME_HINTS: Record<string, string[]> = {
@@ -225,6 +225,27 @@ function voteEvent(perImage: Record<string, unknown>[], evidenceText: string): s
   return score >= 4 ? winner : "";
 }
 
+function asCategoryValues(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean);
+  const text = asText(value);
+  return text ? [text] : [];
+}
+
+function voteFieldMulti(perImage: Record<string, unknown>[], key: string, options: string[], limit = 3): string[] {
+  const votes: Record<string, number> = {};
+  for (const img of perImage) {
+    const candidates = asCategoryValues(img[key]);
+    for (const candidate of candidates) {
+      const val = pickFromList(candidate, options);
+      if (val) votes[val] = (votes[val] || 0) + 1;
+    }
+  }
+  return Object.entries(votes)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([value]) => value);
+}
+
 function voteField(perImage: Record<string, unknown>[], key: string, options: string[]): string {
   const votes: Record<string, number> = {};
   for (const img of perImage) {
@@ -257,8 +278,8 @@ function mergeColors(perImage: Record<string, unknown>[]): string[] {
 type Suggestions = {
   theme: string;
   event_type: string;
-  photography_style: string;
-  mood: string;
+  photography_style: string[];
+  mood: string[];
   location_type: string;
   lighting_style: string;
   editing_style: string;
@@ -291,7 +312,15 @@ function buildFromPerImage(
     theme = pickThemeForEvent(event_type, opts.theme);
   }
 
-  const mood = voteField(perImage, "mood", opts.mood) || pickFromList(asText(merged.mood), opts.mood);
+  const moodVotes = voteFieldMulti(perImage, "mood", opts.mood, 3);
+  const mood = moodVotes.length
+    ? moodVotes
+    : asCategoryValues(merged.mood)
+        .map((m) => pickFromList(m, opts.mood))
+        .filter(Boolean)
+        .filter((v, i, arr) => arr.indexOf(v) === i)
+        .slice(0, 3);
+
   const tagSet = new Set<string>();
   mergeUnique(perImage, "tags", 20).forEach((t) => tagSet.add(t.toLowerCase()));
   asArray(merged.tags).forEach((t) => tagSet.add(t.toLowerCase()));
@@ -301,13 +330,19 @@ function buildFromPerImage(
   const highConf = perImage.filter((i) => asText(i.event_confidence) === "high").length;
   const confidence = highConf >= perImage.length / 2 ? "high" : event_type ? "medium" : "low";
 
+  const styleVotes = voteFieldMulti(perImage, "photography_style", opts.photography_style, 3);
+
   return {
     suggestions: {
       theme,
       event_type,
-      photography_style:
-        voteField(perImage, "photography_style", opts.photography_style) ||
-        pickFromList(asText(merged.photography_style), opts.photography_style),
+      photography_style: styleVotes.length
+        ? styleVotes
+        : asCategoryValues(merged.photography_style)
+            .map((s) => pickFromList(s, opts.photography_style))
+            .filter(Boolean)
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .slice(0, 3),
       mood,
       location_type:
         voteField(perImage, "location_type", opts.location_type) ||

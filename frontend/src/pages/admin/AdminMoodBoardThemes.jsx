@@ -20,14 +20,16 @@ import {
   groupCategoryRows,
 } from "../../services/moodBoardCategories";
 import MoodBoardCategoryManager from "../../components/admin/MoodBoardCategoryManager";
+import CategoryMultiSelect from "../../components/ui/CategoryMultiSelect";
+import { asCategoryValues } from "../../services/moodBoardCategories";
 import Swal from "sweetalert2";
 
 const EMPTY_FORM = {
   name: "",
   description: "",
   event_type: "",
-  photography_style: "",
-  mood: "",
+  photography_style: [],
+  mood: [],
   location_type: "",
   color_palette: [],
   tags: [],
@@ -100,8 +102,8 @@ export default function AdminMoodBoardThemes() {
       name: theme.name,
       description: theme.description || "",
       event_type: theme.event_type || "",
-      photography_style: theme.photography_style || "",
-      mood: theme.mood || "",
+      photography_style: asCategoryValues(theme.photography_style),
+      mood: asCategoryValues(theme.mood),
       location_type: theme.location_type || "",
       color_palette: asStringArray(theme.color_palette),
       tags: asStringArray(theme.tags),
@@ -128,8 +130,8 @@ export default function AdminMoodBoardThemes() {
     name: form.name.trim(),
     description: form.description.trim(),
     event_type: form.event_type.trim(),
-    photography_style: form.photography_style.trim(),
-    mood: form.mood.trim(),
+    photography_style: form.photography_style,
+    mood: form.mood,
     location_type: form.location_type.trim(),
     color_palette: form.color_palette,
     tags: form.tags,
@@ -153,18 +155,25 @@ export default function AdminMoodBoardThemes() {
         if (!value) return;
         if (overwrite || !next[key] || !String(next[key]).trim()) next[key] = value;
       };
+      const fillArray = (key, values) => {
+        const list = asCategoryValues(values);
+        if (!list.length) return;
+        if (overwrite || !next[key]?.length) next[key] = list;
+        else next[key] = [...new Set([...next[key], ...list])];
+      };
       fill("name", f.name || s.theme);
-      fill("mood", s.mood);
+      fillArray("mood", s.mood);
       fill("event_type", normalizeEventType(s.event_type) || s.event_type);
-      fill("photography_style", s.photography_style);
+      fillArray("photography_style", s.photography_style);
       fill("location_type", s.location_type);
       fill("lighting_style", s.lighting_style);
       fill("editing_style", s.editing_style);
 
       // Description: prefer the AI-written description, otherwise synthesize one.
       if (overwrite || !next.description?.trim()) {
+        const moodText = asCategoryValues(s.mood).join(" & ");
         const fallbackDesc = s.theme
-          ? `${s.theme} theme${s.mood ? ` with a ${s.mood.toLowerCase()} feel` : ""}.`
+          ? `${s.theme} theme${moodText ? ` with a ${moodText.toLowerCase()} feel` : ""}.`
           : "";
         next.description = (s.description || fallbackDesc || next.description || "").trim();
       }
@@ -393,7 +402,12 @@ export default function AdminMoodBoardThemes() {
                     <p className="font-semibold text-[#5B4636]">{theme.name}</p>
                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">{theme.description}</p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {theme.mood && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A98B75]/10 text-[#A98B75]">{theme.mood}</span>}
+                      {asCategoryValues(theme.mood).map((m) => (
+                        <span key={m} className="text-[10px] px-2 py-0.5 rounded-full bg-[#A98B75]/10 text-[#A98B75]">{m}</span>
+                      ))}
+                      {asCategoryValues(theme.photography_style).map((s) => (
+                        <span key={s} className="text-[10px] px-2 py-0.5 rounded-full bg-[#F8F6F3] text-gray-500 border border-[#E8E1DA]">{s}</span>
+                      ))}
                       {theme.event_type && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#F8F6F3] text-gray-500 border border-[#E8E1DA]">{theme.event_type}</span>}
                     </div>
                     <p className="text-[10px] text-gray-400 mt-2">
@@ -503,27 +517,23 @@ export default function AdminMoodBoardThemes() {
                       {EVENT_TYPES.map((ev) => <option key={ev} value={ev}>{ev}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Photography style</label>
-                    <select
-                      value={form.photography_style}
-                      onChange={(e) => setField("photography_style", e.target.value)}
-                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
-                    >
-                      <option value="">Not specified</option>
-                      {categoryLabels.photography_style.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Mood</label>
-                    <select
+                  <div className="sm:col-span-2">
+                    <CategoryMultiSelect
+                      label="Mood"
+                      hint="Select one or more moods that fit this inspiration."
+                      options={categoryLabels.mood}
                       value={form.mood}
-                      onChange={(e) => setField("mood", e.target.value)}
-                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
-                    >
-                      <option value="">Not specified</option>
-                      {categoryLabels.mood.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
+                      onChange={(next) => setField("mood", next)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <CategoryMultiSelect
+                      label="Photography style"
+                      hint="Select one or more photography styles."
+                      options={categoryLabels.photography_style}
+                      value={form.photography_style}
+                      onChange={(next) => setField("photography_style", next)}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Location type</label>

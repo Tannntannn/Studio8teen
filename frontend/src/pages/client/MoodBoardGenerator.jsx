@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FaPalette, FaRedo } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import MoodBoardDisplay from "../../components/moodboard/MoodBoardDisplay";
+import CategoryMultiSelect from "../../components/ui/CategoryMultiSelect";
 import { getActiveThemes } from "../../services/moodBoardThemes";
 import { EVENT_TYPES } from "../../lib/moodBoardOptions";
 import { getMoodBoardCategoryLabels, groupedLabelsWithFallback, groupCategoryRows } from "../../services/moodBoardCategories";
@@ -11,9 +12,9 @@ import { generateMoodBoard } from "../../lib/moodBoardEngine";
 const EMPTY_PREFS = {
   eventType: "",
   theme: "",
-  mood: "",
+  mood: [],
   locationType: "",
-  photographyStyle: "",
+  photographyStyle: [],
 };
 
 export default function MoodBoardGenerator() {
@@ -176,20 +177,18 @@ export default function MoodBoardGenerator() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Mood <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <select
+              <div className="sm:col-span-2">
+                <CategoryMultiSelect
+                  label={
+                    <>
+                      Mood <span className="text-gray-400 font-normal">(optional)</span>
+                    </>
+                  }
+                  hint="Select one or more moods — e.g. Joyful and Romantic."
+                  options={categoryLabels.mood}
                   value={prefs.mood}
-                  onChange={(e) => setPref("mood", e.target.value)}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
-                >
-                  <option value="">No preference</option>
-                  {categoryLabels.mood.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+                  onChange={(next) => setPref("mood", next)}
+                />
               </div>
 
               <div>
@@ -208,20 +207,18 @@ export default function MoodBoardGenerator() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Photography style <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <select
+              <div className="sm:col-span-2">
+                <CategoryMultiSelect
+                  label={
+                    <>
+                      Photography style <span className="text-gray-400 font-normal">(optional)</span>
+                    </>
+                  }
+                  hint="Select one or more styles — e.g. Portrait and Candid."
+                  options={categoryLabels.photography_style}
                   value={prefs.photographyStyle}
-                  onChange={(e) => setPref("photographyStyle", e.target.value)}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
-                >
-                  <option value="">No preference</option>
-                  {categoryLabels.photography_style.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+                  onChange={(next) => setPref("photographyStyle", next)}
+                />
               </div>
             </div>
 

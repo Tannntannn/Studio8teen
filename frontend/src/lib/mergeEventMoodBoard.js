@@ -1,4 +1,5 @@
 import { asStringArray } from "../services/moodBoardThemes";
+import { asCategoryValues } from "../services/moodBoardCategories";
 import { filterThemesByEvent } from "./themeMatching";
 
 /**
@@ -33,8 +34,8 @@ export function mergeThemesForEvent(themes, eventType) {
     asStringArray(theme.outfit_suggestions).forEach((o) => outfits.add(o));
     asStringArray(theme.prop_suggestions).forEach((p) => props.add(p));
     asStringArray(theme.tags).forEach((t) => tags.add(t.toLowerCase()));
-    if (theme.mood) moods.add(theme.mood);
-    if (theme.photography_style) styles.add(theme.photography_style);
+    asCategoryValues(theme.mood).forEach((m) => moods.add(m));
+    asCategoryValues(theme.photography_style).forEach((s) => styles.add(s));
     if (theme.location_type) locations.add(theme.location_type);
     if (theme.lighting_style) lighting.add(theme.lighting_style);
     if (theme.editing_style) editing.add(theme.editing_style);
@@ -59,8 +60,8 @@ export function mergeThemesForEvent(themes, eventType) {
     outfit_suggestions: [...outfits],
     prop_suggestions: [...props],
     tags: [...tags],
-    mood: [...moods].join(" · "),
-    photography_style: [...styles].join(" · "),
+    mood: [...moods],
+    photography_style: [...styles],
     location_type: [...locations].join(" · "),
     lighting_style: [...lighting].join(" "),
     editing_style: [...editing].join(" "),

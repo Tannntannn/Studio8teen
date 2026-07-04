@@ -2,7 +2,7 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { getVisionAnalysisUrl } from "../lib/cloudinary";
 import { buildSuggestionsFromVision, buildFastVisionInstruction } from "../lib/visionPostProcess";
-import { clampSuggestionsToCategories } from "./moodBoardCategories";
+import { clampSuggestionsToCategories, asCategoryValues } from "./moodBoardCategories";
 
 const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 
@@ -53,8 +53,8 @@ function normalizeSuggestions(suggestions) {
   return {
     theme: asText(suggestions.theme),
     event_type: asText(suggestions.event_type),
-    photography_style: asText(suggestions.photography_style),
-    mood: asText(suggestions.mood),
+    photography_style: asCategoryValues(suggestions.photography_style),
+    mood: asCategoryValues(suggestions.mood),
     location_type: asText(suggestions.location_type),
     lighting_style: asText(suggestions.lighting_style),
     editing_style: asText(suggestions.editing_style),

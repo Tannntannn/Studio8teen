@@ -3,6 +3,7 @@ import { useState } from "react";
 import ImageLightbox from "../ui/ImageLightbox";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { asColorArray, asStringArray } from "../../services/moodBoardThemes";
+import { asCategoryValues, formatCategoryList } from "../../services/moodBoardCategories";
 
 function TagList({ items, emptyLabel = "None listed" }) {
   const list = asStringArray(items);
@@ -73,14 +74,17 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
   const tags = asStringArray(theme.tags);
   const sourceThemes = asStringArray(theme.source_theme_names);
 
+  const moods = asCategoryValues(theme.mood);
+  const styles = asCategoryValues(theme.photography_style);
+
   const hasRecommendations =
     theme.color_palette?.length ||
     asStringArray(theme.outfit_suggestions).length ||
     asStringArray(theme.prop_suggestions).length ||
     theme.lighting_style ||
     theme.editing_style ||
-    theme.mood ||
-    theme.photography_style ||
+    moods.length ||
+    styles.length ||
     theme.location_type;
 
   return (
@@ -158,11 +162,11 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
       )}
 
       {/* Theme attributes */}
-      {(eventType || theme.event_type || theme.photography_style || theme.mood || theme.location_type) && (
+      {(eventType || theme.event_type || styles.length || moods.length || theme.location_type) && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Attribute icon={FaCamera} label="Event type" value={eventType || theme.event_type} />
-          <Attribute icon={FaMagic} label="Photography style" value={theme.photography_style} />
-          <Attribute icon={FaSmile} label="Mood" value={theme.mood} />
+          <Attribute icon={FaMagic} label="Photography style" value={formatCategoryList(styles)} />
+          <Attribute icon={FaSmile} label="Mood" value={formatCategoryList(moods)} />
           <Attribute icon={FaMapMarkerAlt} label="Location" value={theme.location_type} />
         </div>
       )}
