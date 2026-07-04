@@ -13,7 +13,13 @@ import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../l
 import { analyzeImageFiles, analyzeImageUrls } from "../../lib/imageAnalysis";
 import { analyzeImagesWithVision, localColorSuggestionsOnly } from "../../services/imageVision";
 import { normalizeEventType } from "../../lib/themeMatching";
-import { EVENT_TYPES, DEFAULT_THEMES, MOOD_OPTIONS, LOCATION_TYPES, PHOTOGRAPHY_STYLES } from "../../lib/moodBoardOptions";
+import { EVENT_TYPES } from "../../lib/moodBoardOptions";
+import {
+  getMoodBoardCategoryLabels,
+  groupedLabelsWithFallback,
+  groupCategoryRows,
+} from "../../services/moodBoardCategories";
+import MoodBoardCategoryManager from "../../components/admin/MoodBoardCategoryManager";
 import Swal from "sweetalert2";
 
 const EMPTY_FORM = {
@@ -58,6 +64,9 @@ export default function AdminMoodBoardThemes() {
   const [currentImages, setCurrentImages] = useState([]);
   const [suggestionNote, setSuggestionNote] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [categoryLabels, setCategoryLabels] = useState(() =>
+    groupedLabelsWithFallback(groupCategoryRows([]))
+  );
 
   const load = () =>
     getAllThemes()
@@ -67,6 +76,9 @@ export default function AdminMoodBoardThemes() {
 
   useEffect(() => {
     load();
+    getMoodBoardCategoryLabels()
+      .then(setCategoryLabels)
+      .catch(() => {});
   }, []);
 
   const setField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -356,6 +368,10 @@ export default function AdminMoodBoardThemes() {
           </button>
         </div>
 
+        <MoodBoardCategoryManager
+          onChange={(grouped) => setCategoryLabels(groupedLabelsWithFallback(grouped))}
+        />
+
         <div className="grid lg:grid-cols-5 gap-6">
           <div className="lg:col-span-2 space-y-3">
             {loading && <p className="text-gray-400 text-sm">Loading themes...</p>}
@@ -476,7 +492,7 @@ export default function AdminMoodBoardThemes() {
                       className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75]"
                     />
                     <datalist id="theme-name-options">
-                      {DEFAULT_THEMES.map((t) => <option key={t} value={t} />)}
+                      {categoryLabels.theme.map((t) => <option key={t} value={t} />)}
                     </datalist>
                   </div>
                   <div>
@@ -488,39 +504,36 @@ export default function AdminMoodBoardThemes() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Photography style</label>
-                    <input
-                      list="style-options"
+                    <select
                       value={form.photography_style}
                       onChange={(e) => setField("photography_style", e.target.value)}
-                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75]"
-                    />
-                    <datalist id="style-options">
-                      {PHOTOGRAPHY_STYLES.map((s) => <option key={s} value={s} />)}
-                    </datalist>
+                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
+                    >
+                      <option value="">Not specified</option>
+                      {categoryLabels.photography_style.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Mood</label>
-                    <input
-                      list="mood-options"
+                    <select
                       value={form.mood}
                       onChange={(e) => setField("mood", e.target.value)}
-                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75]"
-                    />
-                    <datalist id="mood-options">
-                      {MOOD_OPTIONS.map((m) => <option key={m} value={m} />)}
-                    </datalist>
+                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
+                    >
+                      <option value="">Not specified</option>
+                      {categoryLabels.mood.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Location type</label>
-                    <input
-                      list="location-options"
+                    <select
                       value={form.location_type}
                       onChange={(e) => setField("location_type", e.target.value)}
-                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75]"
-                    />
-                    <datalist id="location-options">
-                      {LOCATION_TYPES.map((l) => <option key={l} value={l} />)}
-                    </datalist>
+                      className="w-full border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
+                    >
+                      <option value="">Not specified</option>
+                      {categoryLabels.location_type.map((l) => <option key={l} value={l}>{l}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Sort order</label>

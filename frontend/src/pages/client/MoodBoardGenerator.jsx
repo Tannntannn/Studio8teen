@@ -3,13 +3,8 @@ import { FaPalette, FaRedo } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import MoodBoardDisplay from "../../components/moodboard/MoodBoardDisplay";
 import { getActiveThemes } from "../../services/moodBoardThemes";
-import {
-  EVENT_TYPES,
-  MOOD_OPTIONS,
-  LOCATION_TYPES,
-  PHOTOGRAPHY_STYLES,
-  getClientThemeOptions,
-} from "../../lib/moodBoardOptions";
+import { EVENT_TYPES } from "../../lib/moodBoardOptions";
+import { getMoodBoardCategoryLabels, groupedLabelsWithFallback, groupCategoryRows } from "../../services/moodBoardCategories";
 import { filterThemesByEvent } from "../../lib/themeMatching";
 import { generateMoodBoard } from "../../lib/moodBoardEngine";
 
@@ -33,19 +28,21 @@ export default function MoodBoardGenerator() {
   const [generateError, setGenerateError] = useState(null);
   const [generated, setGenerated] = useState(null);
   const [generatedMeta, setGeneratedMeta] = useState(null);
+  const [categoryLabels, setCategoryLabels] = useState(() =>
+    groupedLabelsWithFallback(groupCategoryRows([]))
+  );
 
   useEffect(() => {
+    getMoodBoardCategoryLabels()
+      .then(setCategoryLabels)
+      .catch(() => {});
+
     setLoadingThemes(true);
     getActiveThemes()
       .then(setThemes)
       .catch((err) => setLoadError(err.message || "Could not load themes."))
       .finally(() => setLoadingThemes(false));
   }, []);
-
-  const themeOptions = useMemo(() => {
-    const fromAdmin = themes.map((t) => t.name).filter(Boolean);
-    return getClientThemeOptions(fromAdmin);
-  }, [themes]);
 
   const candidateImageCount = useMemo(
     () =>
@@ -173,7 +170,7 @@ export default function MoodBoardGenerator() {
                   className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
-                  {themeOptions.map((name) => (
+                  {categoryLabels.theme.map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
                 </select>
@@ -189,7 +186,7 @@ export default function MoodBoardGenerator() {
                   className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
-                  {MOOD_OPTIONS.map((m) => (
+                  {categoryLabels.mood.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
@@ -205,7 +202,7 @@ export default function MoodBoardGenerator() {
                   className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
-                  {LOCATION_TYPES.map((l) => (
+                  {categoryLabels.location_type.map((l) => (
                     <option key={l} value={l}>{l}</option>
                   ))}
                 </select>
@@ -221,7 +218,7 @@ export default function MoodBoardGenerator() {
                   className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
-                  {PHOTOGRAPHY_STYLES.map((s) => (
+                  {categoryLabels.photography_style.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>

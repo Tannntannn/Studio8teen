@@ -1,4 +1,4 @@
-// Shared option lists for the Mood Board Generator
+// Event types stay fixed; theme/mood/location/style are admin-managed in the database.
 
 export const EVENT_TYPES = [
   "Wedding",
@@ -12,57 +12,16 @@ export const EVENT_TYPES = [
   "Formal Portrait",
 ];
 
-export const DEFAULT_THEMES = [
-  "Rustic",
-  "Elegant",
-  "Vintage",
-  "Modern",
-  "Minimalist",
-  "Bohemian",
-  "Garden",
-  "Beach",
-  "Nature",
-  "Floral",
-  "Studio Portrait",
-  "Classic",
-  "Luxury",
-  "Bright & Airy",
-  "Dark & Moody",
-  "Cinematic",
-];
+/** Used when the database has no rows yet (offline / migration not applied). */
+export const FALLBACK_MOOD_BOARD_CATEGORIES = {
+  theme: ["Minimalist", "Modern", "Vintage", "Cinematic", "Floral", "Luxury", "Elegant", "Nature"],
+  mood: ["Romantic", "Joyful", "Formal", "Playful", "Cozy", "Dramatic", "Natural"],
+  location_type: ["Indoor", "Garden", "Beach", "Church", "Outdoor", "Nature"],
+  photography_style: ["Editorial", "Fine Art", "Aerial", "Close-up", "Portrait", "Candid", "Traditional"],
+};
 
-export const MOOD_OPTIONS = [
-  "Bright & Airy",
-  "Dark & Moody",
-  "Warm & Romantic",
-  "Cool & Modern",
-  "Bold & Dramatic",
-  "Soft & Natural",
-  "Vibrant & Playful",
-];
-
-export const LOCATION_TYPES = [
-  "Indoor Studio",
-  "Outdoor Garden",
-  "Beach",
-  "Urban / City",
-  "Nature / Forest",
-  "Home / Lifestyle",
-  "Venue / Hall",
-];
-
-export const PHOTOGRAPHY_STYLES = [
-  "Natural Light",
-  "Studio Portrait",
-  "Editorial / Fashion",
-  "Candid Lifestyle",
-  "Fine Art",
-  "Documentary",
-  "Cinematic",
-];
-
-/** Client dropdown options — static catalogs plus any extra names from admin themes. */
-export function getClientThemeOptions(adminThemeNames = []) {
-  const merged = new Set([...DEFAULT_THEMES, ...adminThemeNames.filter(Boolean)]);
-  return [...merged].sort((a, b) => a.localeCompare(b));
-}
+// Aliases for AI vision post-processing fallbacks
+export const DEFAULT_THEMES = FALLBACK_MOOD_BOARD_CATEGORIES.theme;
+export const MOOD_OPTIONS = FALLBACK_MOOD_BOARD_CATEGORIES.mood;
+export const LOCATION_TYPES = FALLBACK_MOOD_BOARD_CATEGORIES.location_type;
+export const PHOTOGRAPHY_STYLES = FALLBACK_MOOD_BOARD_CATEGORIES.photography_style;
