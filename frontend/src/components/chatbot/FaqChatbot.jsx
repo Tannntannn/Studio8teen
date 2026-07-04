@@ -5,7 +5,7 @@ import { searchFaq } from "../../services/profiles";
 export default function FaqChatbot() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "bot", text: "Hi! I'm the Studio 8Teen assistant. Ask me about bookings, payments, hours, or photo delivery." },
+    { role: "bot", text: "Hi! I'm the Studio 8Teen assistant. Ask me about bookings, walk-ins, payments, soft copies, cancellations, late arrivals, or studio policies." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,7 +21,10 @@ export default function FaqChatbot() {
 
     try {
       const result = await searchFaq(question);
-      setMessages((m) => [...m, { role: "bot", text: result.answer }]);
+      const reply = result.matched && result.question
+        ? `${result.question}\n\n${result.answer}`
+        : result.answer;
+      setMessages((m) => [...m, { role: "bot", text: reply }]);
     } catch {
       setMessages((m) => [...m, { role: "bot", text: "Sorry, something went wrong. Please try again." }]);
     } finally {

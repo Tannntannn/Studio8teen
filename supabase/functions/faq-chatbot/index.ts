@@ -45,12 +45,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    const contactFallback =
+      "I'm not sure about that. Please contact Studio 8Teen about your question.\n\nPhone: 0906 208 7291 (09062087291)\nEmail: studiobook12@gmail.com\nFacebook: facebook.com/profile.php?id=61556578913301";
+
     const answer =
-      bestScore === 0
-        ? "I'm not sure about that. Please contact Studio 8Teen directly for assistance."
+      bestScore < 5
+        ? contactFallback
         : best.answer;
 
-    return new Response(JSON.stringify({ answer, matched: bestScore > 0, question: best?.question }), {
+    return new Response(
+      JSON.stringify({
+        answer: bestScore >= 5 && best?.question ? `${best.question}\n\n${answer}` : answer,
+        matched: bestScore >= 5,
+        question: best?.question,
+      }),
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

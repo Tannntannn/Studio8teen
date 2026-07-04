@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { STUDIO_EMAIL, STUDIO_PHONE, STUDIO_PHONE_DISPLAY } from "../lib/constants";
 
 export async function getProfile(userId) {
   const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
@@ -64,18 +65,22 @@ export async function getFaqEntries() {
 export async function searchFaq(query) {
   const entries = await getFaqEntries();
   const q = query.toLowerCase().trim();
-  const words = q.split(/\s+/).filter((w) => w.length > 2);
+  const words = q.split(/\s+/).filter((w) => w.length > 1);
 
   const synonyms = {
-    book: ["booking", "book", "schedule", "reserve", "appointment"],
+    book: ["booking", "book", "schedule", "reserve", "appointment", "walk-in", "walk in", "online"],
     pay: ["payment", "pay", "gcash", "downpayment", "deposit", "proof"],
-    cancel: ["cancel", "cancellation", "refund"],
-    photo: ["photo", "photos", "gallery", "portfolio", "pictures", "images"],
-    hour: ["hour", "hours", "open", "time", "schedule"],
+    cancel: ["cancel", "cancellation", "refund", "reschedule"],
+    photo: ["photo", "photos", "gallery", "portfolio", "pictures", "images", "soft copies", "soft copy", "enhanced"],
+    hour: ["hour", "hours", "open", "time", "schedule", "operating"],
     price: ["price", "cost", "package", "rate", "fee"],
     mood: ["mood", "theme", "board", "inspiration"],
     pose: ["pose", "poses", "posing"],
-    deliver: ["delivery", "deliver", "turnaround", "ready"],
+    deliver: ["delivery", "deliver", "turnaround", "ready", "receive", "upload"],
+    late: ["late", "arrival", "arrive", "minutes", "tardy"],
+    companion: ["companion", "companions", "guest", "guests", "extra", "friend"],
+    damage: ["damage", "damaged", "penalty", "penalties", "equipment", "backdrop", "break"],
+    belong: ["belongings", "lost", "valuables", "personal", "items"],
   };
 
   const expandedWords = new Set(words);
@@ -98,13 +103,14 @@ export async function searchFaq(query) {
     const blob = `${question} ${answer} ${keywords.join(" ")}`;
     let score = 0;
 
+    if (question === q) score += 20;
     if (blob.includes(q)) score += 12;
-    if (question.includes(q) || q.includes(question.slice(0, 20))) score += 8;
+    if (question.includes(q) || q.includes(question.slice(0, Math.min(question.length, 24)))) score += 8;
 
     for (const word of expandedWords) {
-      if (question.includes(word)) score += 3;
+      if (question.includes(word)) score += 4;
       if (answer.includes(word)) score += 2;
-      if (keywords.some((k) => k.includes(word) || word.includes(k))) score += 5;
+      if (keywords.some((k) => k === word || k.includes(word) || word.includes(k))) score += 6;
     }
 
     if (score > bestScore) {
@@ -113,11 +119,10 @@ export async function searchFaq(query) {
     }
   }
 
-  if (!best || bestScore < 4) {
-    return {
-      answer: "I'm not sure about that. Please contact us through the Contact section or email studiobook12@gmail.com for assistance.",
-      matched: false,
-    };
+  const contactFallback = `I'm not sure about that. Please contact Studio 8Teen about your question.\n\nPhone: ${STUDIO_PHONE_DISPLAY} (${STUDIO_PHONE})\nEmail: ${STUDIO_EMAIL}\nFacebook: facebook.com/profile.php?id=61556578913301`;
+
+  if (!best || bestScore < 5) {
+    return { answer: contactFallback, matched: false };
   }
 
   return { answer: best.answer, matched: true, question: best.question };

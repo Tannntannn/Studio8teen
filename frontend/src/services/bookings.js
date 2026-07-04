@@ -34,7 +34,16 @@ async function attachProfiles(bookings) {
   return bookings.map((b) => ({ ...b, profiles: profileMap[b.client_id] || null }));
 }
 
+async function expireUnapprovedBookings() {
+  try {
+    await supabase.rpc("cancel_expired_unapproved_bookings");
+  } catch (err) {
+    console.warn("Could not expire unapproved bookings:", err.message);
+  }
+}
+
 export async function getMyBookings() {
+  await expireUnapprovedBookings();
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("bookings")
@@ -46,6 +55,7 @@ export async function getMyBookings() {
 }
 
 export async function getAllBookings() {
+  await expireUnapprovedBookings();
   const { data, error } = await supabase
     .from("bookings")
     .select("*, packages(name, price), payments(*)")
@@ -56,6 +66,7 @@ export async function getAllBookings() {
 }
 
 export async function getBooking(id) {
+  await expireUnapprovedBookings();
   const { data, error } = await supabase
     .from("bookings")
     .select("*, packages(name, price, features), payments(*), event_checklists(*), mood_boards(*), cancellations(*)")
