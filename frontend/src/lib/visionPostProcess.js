@@ -1,11 +1,10 @@
-import {
-  EVENT_TYPES,
-  DEFAULT_THEMES,
-  MOOD_OPTIONS,
-  LOCATION_TYPES,
-  PHOTOGRAPHY_STYLES,
-} from "./moodBoardOptions";
+import { EVENT_TYPES } from "./moodBoardOptions";
 import { normalizeEventType } from "./themeMatching";
+import {
+  normalizeCategoryOptions,
+  pickFromCategoryHints,
+  pickFromCategoryList,
+} from "../services/moodBoardCategories";
 
 const EVENT_SIGNALS = {
   Graduation: /\b(graduation|graduate|grad\b|diploma|cap and gown|mortarboard|tassel|commencement|stole|sash|class of|academic regalia|school)\b/i,
@@ -17,18 +16,26 @@ const EVENT_SIGNALS = {
   Corporate: /\b(corporate|business portrait|headshot|office|executive|professional headshot)\b/i,
 };
 
+const EVENT_THEME_HINTS = {
+  Graduation: ["elegant", "formal", "classic"],
+  Wedding: ["elegant", "luxury", "romantic", "floral"],
+  Birthday: ["playful", "modern", "floral"],
+  Debut: ["luxury", "elegant", "cinematic"],
+  Christening: ["elegant", "nature", "floral"],
+  Family: ["nature", "cozy", "natural"],
+  Corporate: ["modern", "minimalist", "elegant"],
+  "Casual Portrait": ["natural", "modern", "minimalist"],
+  "Formal Portrait": ["elegant", "luxury", "classic"],
+};
+
 const CONFIDENCE_WEIGHT = { high: 3, medium: 2, low: 1 };
 
 const asArray = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
 const asText = (v) => (typeof v === "string" ? v.trim() : "");
-const norm = (s) => s.toLowerCase().trim();
 
-function pickFromList(raw, options) {
-  if (!raw) return "";
-  const n = norm(raw);
-  const exact = options.find((o) => norm(o) === n);
-  if (exact) return exact;
-  return options.find((o) => n.includes(norm(o)) || norm(o).includes(n)) || "";
+function pickThemeForEvent(eventType, themes) {
+  if (!eventType || !themes?.length) return "";
+  return pickFromCategoryHints(EVENT_THEME_HINTS[eventType] || [], themes);
 }
 
 function scoreEvidence(text) {
@@ -47,7 +54,7 @@ function voteEvent(perImage, evidenceText) {
   for (const img of perImage) {
     const cues = asArray(img.visual_cues).join(" ");
     const cueScores = scoreEvidence(cues);
-    const modelEvent = pickFromList(asText(img.event_type), EVENT_TYPES);
+    const modelEvent = pickFromCategoryList(asText(img.event_type), EVENT_TYPES);
     const conf = CONFIDENCE_WEIGHT[asText(img.event_confidence)] || 1;
 
     const cueTop = Object.entries(cueScores).sort((a, b) => b[1] - a[1])[0];
@@ -75,7 +82,7 @@ function voteEvent(perImage, evidenceText) {
 function voteField(perImage, key, options) {
   const votes = {};
   for (const img of perImage) {
-    const val = pickFromList(asText(img[key]), options);
+    const val = pickFromCategoryList(asText(img[key]), options);
     if (val) votes[val] = (votes[val] || 0) + 1;
   }
   const ranked = Object.entries(votes).sort((a, b) => b[1] - a[1]);
@@ -101,8 +108,14 @@ function mergeColors(perImage) {
   return [...set].slice(0, 6);
 }
 
-/** Turn raw model JSON into validated, evidence-weighted suggestions. */
-export function buildSuggestionsFromVision(parsed) {
+function formatCategoryList(options) {
+  if (!options?.length) return "(none configured — leave empty)";
+  return options.join(", ");
+}
+
+/** Turn raw model JSON into validated suggestions using admin category lists only. */
+export function buildSuggestionsFromVision(parsed, categoryOptions) {
+  const opts = normalizeCategoryOptions(categoryOptions);
   const perImage = Array.isArray(parsed?.per_image)
     ? parsed.per_image
     : [{ visual_cues: parsed?.visual_cues, ...parsed }];
@@ -115,28 +128,18 @@ export function buildSuggestionsFromVision(parsed) {
   const event_type =
     voteEvent(perImage, evidenceText) ||
     normalizeEventType(merged.event_type) ||
-    pickFromList(asText(merged.event_type), EVENT_TYPES);
+    pickFromCategoryList(asText(merged.event_type), EVENT_TYPES);
 
-  let theme = voteField(perImage, "theme", DEFAULT_THEMES) || pickFromList(asText(merged.theme), DEFAULT_THEMES);
-  if (!theme || theme === "Classic") {
-    const eventThemes = {
-      Graduation: "Elegant",
-      Wedding: "Elegant",
-      Birthday: "Bright & Airy",
-      Debut: "Luxury",
-      Christening: "Bright & Airy",
-      Family: "Garden",
-      Corporate: "Modern",
-      "Casual Portrait": "Bright & Airy",
-      "Formal Portrait": "Elegant",
-    };
-    theme = event_type ? eventThemes[event_type] || "Elegant" : theme || "Elegant";
+  let theme =
+    voteField(perImage, "theme", opts.theme) ||
+    pickFromCategoryList(asText(merged.theme), opts.theme);
+  if (!theme && event_type) {
+    theme = pickThemeForEvent(event_type, opts.theme);
   }
 
   const mood =
-    voteField(perImage, "mood", MOOD_OPTIONS) ||
-    pickFromList(asText(merged.mood), MOOD_OPTIONS) ||
-    "Soft & Natural";
+    voteField(perImage, "mood", opts.mood) ||
+    pickFromCategoryList(asText(merged.mood), opts.mood);
 
   const tagSet = new Set();
   mergeUnique(perImage, "tags", 20).forEach((t) => tagSet.add(t.toLowerCase()));
@@ -152,14 +155,12 @@ export function buildSuggestionsFromVision(parsed) {
     theme,
     event_type,
     photography_style:
-      voteField(perImage, "photography_style", PHOTOGRAPHY_STYLES) ||
-      pickFromList(asText(merged.photography_style), PHOTOGRAPHY_STYLES) ||
-      "Natural Light",
+      voteField(perImage, "photography_style", opts.photography_style) ||
+      pickFromCategoryList(asText(merged.photography_style), opts.photography_style),
     mood,
     location_type:
-      voteField(perImage, "location_type", LOCATION_TYPES) ||
-      pickFromList(asText(merged.location_type), LOCATION_TYPES) ||
-      "Indoor Studio",
+      voteField(perImage, "location_type", opts.location_type) ||
+      pickFromCategoryList(asText(merged.location_type), opts.location_type),
     lighting_style: asText(merged.lighting_style) || asText(perImage[0]?.lighting_style),
     editing_style: asText(merged.editing_style) || asText(perImage[0]?.editing_style),
     description: asText(merged.description),
@@ -174,7 +175,8 @@ export function buildSuggestionsFromVision(parsed) {
   };
 }
 
-export function buildVisionInstruction(imageCount) {
+export function buildVisionInstruction(imageCount, categoryOptions) {
+  const opts = normalizeCategoryOptions(categoryOptions);
   return `Analyze ${imageCount} photo(s). For EACH image separately, then produce a merged result.
 
 Return JSON:
@@ -184,10 +186,10 @@ Return JSON:
     "visual_cues": ["8-12 items: exact clothing, props, people, setting you SEE"],
     "event_type": "one of: ${EVENT_TYPES.join(", ")} or empty",
     "event_confidence": "high|medium|low",
-    "theme": "one of: ${DEFAULT_THEMES.join(", ")}",
-    "mood": "one of: ${MOOD_OPTIONS.join(", ")}",
-    "photography_style": "one of: ${PHOTOGRAPHY_STYLES.join(", ")}",
-    "location_type": "one of: ${LOCATION_TYPES.join(", ")}",
+    "theme": "MUST be exactly one of: ${formatCategoryList(opts.theme)} — or empty if unsure",
+    "mood": "MUST be exactly one of: ${formatCategoryList(opts.mood)} — or empty if unsure",
+    "photography_style": "MUST be exactly one of: ${formatCategoryList(opts.photography_style)} — or empty if unsure",
+    "location_type": "MUST be exactly one of: ${formatCategoryList(opts.location_type)} — or empty if unsure",
     "lighting_style": "",
     "editing_style": "",
     "color_palette": ["#hex"],
@@ -198,6 +200,8 @@ Return JSON:
   "occasion_reasoning": "why merged event_type was chosen",
   "merged": { "theme": "", "event_type": "", "photography_style": "", "mood": "", "location_type": "", "lighting_style": "", "editing_style": "", "description": "", "color_palette": [], "outfit_suggestions": [], "prop_suggestions": [], "tags": [] }
 }
+
+STRICT: theme, mood, photography_style, and location_type must use ONLY the exact labels listed above. Do not invent new category names.
 
 CLASSIFICATION RULES (strict):
 • GRADUATION: cap/gown, mortarboard, tassel, stole, diploma — even if romantic couple
@@ -210,16 +214,22 @@ CLASSIFICATION RULES (strict):
 • CASUAL PORTRAIT: everyday wear, no celebration props
 • FORMAL PORTRAIT: studio pose, evening wear, no event props
 
-List visual_cues BEFORE choosing event_type. If unsure use "" and event_confidence "low". Do NOT guess Wedding or Classic.`;
+List visual_cues BEFORE choosing event_type. If unsure use "" and event_confidence "low".`;
 }
 
 /** Shorter prompt for faster vision API responses (single image). */
-export function buildFastVisionInstruction(imageCount = 1) {
+export function buildFastVisionInstruction(imageCount = 1, categoryOptions) {
+  const opts = normalizeCategoryOptions(categoryOptions);
   return `Analyze ${imageCount} photo(s). Return JSON only:
 {
   "per_image":[{"visual_cues":["8 items max"],"event_type":"","event_confidence":"high|medium|low","theme":"","mood":"","photography_style":"","location_type":"","lighting_style":"","editing_style":"","color_palette":["#hex"],"outfit_suggestions":[],"prop_suggestions":[],"tags":[]}],
   "occasion_reasoning":"",
   "merged":{"theme":"","event_type":"","photography_style":"","mood":"","location_type":"","lighting_style":"","editing_style":"","description":"","color_palette":[],"outfit_suggestions":[],"prop_suggestions":[],"tags":[]}
 }
-event_type options: ${EVENT_TYPES.join(", ")}. Graduation=caps/gowns. Wedding=wedding dress/veil only. List cues before event_type.`;
+event_type options: ${EVENT_TYPES.join(", ")}.
+theme options (exact labels only): ${formatCategoryList(opts.theme)}.
+mood options (exact labels only): ${formatCategoryList(opts.mood)}.
+photography_style options (exact labels only): ${formatCategoryList(opts.photography_style)}.
+location_type options (exact labels only): ${formatCategoryList(opts.location_type)}.
+Graduation=caps/gowns. Wedding=wedding dress/veil only. List cues before event_type.`;
 }

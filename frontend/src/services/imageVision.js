@@ -2,6 +2,7 @@ import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { getVisionAnalysisUrl } from "../lib/cloudinary";
 import { buildSuggestionsFromVision, buildFastVisionInstruction } from "../lib/visionPostProcess";
+import { clampSuggestionsToCategories } from "./moodBoardCategories";
 
 const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 
@@ -71,8 +72,10 @@ function parseModelJson(raw) {
   return JSON.parse(fenced ? fenced[1].trim() : trimmed);
 }
 
-function mergeParsedToSuggestions(parsed) {
-  return normalizeSuggestions(buildSuggestionsFromVision(parsed));
+function mergeParsedToSuggestions(parsed, categoryOptions) {
+  return normalizeSuggestions(
+    clampSuggestionsToCategories(buildSuggestionsFromVision(parsed, categoryOptions), categoryOptions)
+  );
 }
 
 function isRateLimited(status, body) {
@@ -122,7 +125,7 @@ function buildModelList() {
   return [...new Set(models)];
 }
 
-async function callOpenRouter(model, content, timeoutMs) {
+async function callOpenRouter(model, content, timeoutMs, categoryOptions) {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -160,16 +163,16 @@ async function callOpenRouter(model, content, timeoutMs) {
   if (!raw) return { ok: false, rateLimited: false, error: "empty response", body: "" };
 
   const parsed = parseModelJson(raw);
-  const suggestions = mergeParsedToSuggestions(parsed);
+  const suggestions = mergeParsedToSuggestions(parsed, categoryOptions);
   if (!suggestions) return { ok: false, rateLimited: false, error: "invalid json", body: "" };
 
   return { ok: true, suggestions, model };
 }
 
-async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
+async function analyzeWithOpenRouterDirect(urls, { onStatus, categoryOptions } = {}) {
   if (!OPENROUTER_KEY) return null;
 
-  const content = [{ type: "text", text: buildFastVisionInstruction(urls.length) }];
+  const content = [{ type: "text", text: buildFastVisionInstruction(urls.length, categoryOptions) }];
   for (const url of urls) {
     content.push({ type: "image_url", image_url: { url } });
   }
@@ -188,7 +191,7 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
     const timeoutMs = Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft());
 
     try {
-      const result = await callOpenRouter(model, content, timeoutMs);
+      const result = await callOpenRouter(model, content, timeoutMs, categoryOptions);
       if (result.ok) {
         return { suggestions: result.suggestions, meta: { source: "openrouter-direct", model: result.model } };
       }
@@ -203,7 +206,7 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
           rateLimitRetried = true;
           onStatus?.(`Models busy — quick retry...`);
           await sleep(RATE_LIMIT_RETRY_MS);
-          const retry = await callOpenRouter(model, content, Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft()));
+          const retry = await callOpenRouter(model, content, Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft()), categoryOptions);
           if (retry.ok) {
             return { suggestions: retry.suggestions, meta: { source: "openrouter-direct", model: retry.model } };
           }
@@ -232,20 +235,20 @@ async function analyzeWithOpenRouterDirect(urls, { onStatus } = {}) {
   };
 }
 
-async function analyzeViaEdgeFunction(urls) {
+async function analyzeViaEdgeFunction(urls, categoryOptions) {
   const { data, error } = await supabase.functions.invoke("analyze-image", {
-    body: { imageUrls: urls },
+    body: { imageUrls: urls, categoryOptions },
   });
   const payload = await readInvokePayload(data, error);
   return parseInvokeResponse(payload);
 }
 
-function raceVisionProviders(urls, { onStatus } = {}) {
+function raceVisionProviders(urls, { onStatus, categoryOptions } = {}) {
   const attempts = [];
 
   if (OPENROUTER_KEY) {
     attempts.push(
-      analyzeWithOpenRouterDirect(urls, { onStatus }).then((result) => {
+      analyzeWithOpenRouterDirect(urls, { onStatus, categoryOptions }).then((result) => {
         if (result?.suggestions) return result;
         throw result;
       })
@@ -253,7 +256,7 @@ function raceVisionProviders(urls, { onStatus } = {}) {
   }
 
   attempts.push(
-    analyzeViaEdgeFunction(urls).then((result) => {
+    analyzeViaEdgeFunction(urls, categoryOptions).then((result) => {
       if (result?.suggestions) return result;
       throw result;
     })
@@ -264,7 +267,7 @@ function raceVisionProviders(urls, { onStatus } = {}) {
   return Promise.any(attempts).catch(() => null);
 }
 
-export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStatus } = {}) {
+export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStatus, categoryOptions } = {}) {
   const urls = (imageUrls || [])
     .filter(Boolean)
     .slice(-maxImages)
@@ -281,7 +284,7 @@ export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStat
   onStatus?.("Enhancing with AI...");
 
   const raced = await Promise.race([
-    raceVisionProviders(urls, { onStatus }),
+    raceVisionProviders(urls, { onStatus, categoryOptions }),
     sleep(ANALYSIS_DEADLINE_MS).then(() => null),
   ]);
 
@@ -301,9 +304,9 @@ export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStat
   };
 }
 
-export function localColorSuggestionsOnly(local) {
+export function localColorSuggestionsOnly(local, categoryOptions) {
   if (!local) return null;
-  return {
+  const base = {
     theme: local.theme,
     mood: local.mood,
     location_type: local.location_type,
@@ -317,4 +320,5 @@ export function localColorSuggestionsOnly(local) {
       )
     ),
   };
+  return clampSuggestionsToCategories(base, categoryOptions);
 }

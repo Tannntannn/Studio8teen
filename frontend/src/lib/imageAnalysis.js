@@ -1,6 +1,12 @@
 // Client-side image analysis for Mood Board theme suggestions.
 // Uses a canvas to read pixel data, then derives palette + mood/style heuristics.
-// Runs fully in the browser on the selected File (no external API required).
+// Category fields are mapped to admin-managed labels only.
+
+import {
+  normalizeCategoryOptions,
+  pickFromCategoryHints,
+  pickFromCategoryList,
+} from "../services/moodBoardCategories";
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -135,44 +141,63 @@ function analyzePixels(data) {
   };
 }
 
-function deriveSuggestions(m) {
+function deriveSuggestions(m, categoryOptions) {
+  const opts = normalizeCategoryOptions(categoryOptions);
   const { brightness, saturation, warmth, greenness, contrast, dominant } = m;
 
-  // Mood
-  let mood;
-  if (brightness > 0.62 && saturation < 0.35) mood = "Bright & Airy";
-  else if (brightness < 0.38) mood = "Dark & Moody";
-  else if (contrast > 0.55) mood = "Bold & Dramatic";
-  else if (warmth > 0.08) mood = "Warm & Romantic";
-  else if (warmth < -0.04) mood = "Cool & Modern";
-  else if (saturation > 0.5) mood = "Vibrant & Playful";
-  else mood = "Soft & Natural";
+  const mood = pickFromCategoryHints(
+    [
+      brightness > 0.62 && saturation < 0.35 ? "joyful" : "",
+      brightness < 0.38 ? "dramatic" : "",
+      contrast > 0.55 ? "dramatic" : "",
+      warmth > 0.08 ? "romantic" : "",
+      warmth < -0.04 ? "formal" : "",
+      saturation > 0.5 ? "playful" : "",
+      "natural",
+      "cozy",
+    ].filter(Boolean),
+    opts.mood
+  );
 
-  // Theme
-  let theme;
-  if (brightness > 0.62 && saturation < 0.35) theme = "Bright & Airy";
-  else if (brightness < 0.38) theme = "Dark & Moody";
-  else if (contrast > 0.55) theme = "Cinematic";
-  else if (greenness > 0.06) theme = "Garden";
-  else if (warmth > 0.12) theme = "Vintage";
-  else if (saturation < 0.2) theme = "Minimalist";
-  else if (warmth < -0.04) theme = "Modern";
-  else theme = "Classic";
+  const theme = pickFromCategoryHints(
+    [
+      brightness > 0.62 && saturation < 0.35 ? "minimalist" : "",
+      brightness < 0.38 ? "cinematic" : "",
+      contrast > 0.55 ? "cinematic" : "",
+      greenness > 0.06 ? "nature" : "",
+      greenness > 0.06 ? "floral" : "",
+      warmth > 0.12 ? "vintage" : "",
+      saturation < 0.2 ? "minimalist" : "",
+      warmth < -0.04 ? "modern" : "",
+      "elegant",
+    ].filter(Boolean),
+    opts.theme
+  );
 
-  // Location
-  let location;
-  if (greenness > 0.06) location = "Outdoor Garden";
-  else if (dominant && dominant.h >= 165 && dominant.h < 255 && brightness > 0.55) location = "Beach";
-  else if (brightness < 0.4 && saturation < 0.3) location = "Indoor Studio";
-  else if (greenness > 0.02) location = "Nature / Forest";
-  else location = "Indoor Studio";
+  const location = pickFromCategoryHints(
+    [
+      greenness > 0.06 ? "garden" : "",
+      greenness > 0.06 ? "nature" : "",
+      greenness > 0.06 ? "outdoor" : "",
+      dominant && dominant.h >= 165 && dominant.h < 255 && brightness > 0.55 ? "beach" : "",
+      brightness < 0.4 && saturation < 0.3 ? "indoor" : "",
+      "indoor",
+      "outdoor",
+    ].filter(Boolean),
+    opts.location_type
+  );
 
-  // Photography style
-  let style;
-  if (contrast > 0.55) style = "Editorial / Fashion";
-  else if (brightness < 0.4) style = "Cinematic";
-  else if (greenness > 0.04 || brightness > 0.6) style = "Natural Light";
-  else style = "Studio Portrait";
+  const style = pickFromCategoryHints(
+    [
+      contrast > 0.55 ? "editorial" : "",
+      brightness < 0.4 ? "cinematic" : "",
+      greenness > 0.04 || brightness > 0.6 ? "candid" : "",
+      "portrait",
+      "fine art",
+      "traditional",
+    ].filter(Boolean),
+    opts.photography_style
+  );
 
   // Lighting
   let lighting;
@@ -184,9 +209,11 @@ function deriveSuggestions(m) {
 
   // Editing
   let editing;
-  if (mood === "Bright & Airy") editing = "Light and airy edit, lifted shadows, soft pastel tones.";
-  else if (mood === "Dark & Moody") editing = "Moody edit, rich shadows, desaturated cool tones.";
-  else if (warmth > 0.08) editing = "Warm tones, creamy highlights, subtle film grain.";
+  if (pickFromCategoryList("joyful", opts.mood) === mood || pickFromCategoryList("natural", opts.mood) === mood) {
+    editing = "Light and airy edit, lifted shadows, soft pastel tones.";
+  } else if (pickFromCategoryList("dramatic", opts.mood) === mood) {
+    editing = "Moody edit, rich shadows, desaturated cool tones.";
+  } else if (warmth > 0.08) editing = "Warm tones, creamy highlights, subtle film grain.";
   else if (contrast > 0.55) editing = "High-contrast edit, punchy colors, crisp detail.";
   else editing = "True-to-life colors with natural skin tones.";
 
@@ -260,7 +287,7 @@ function mergeMetrics(list) {
  * Analyze one or more image Files and return theme-field suggestions.
  * Returns null if analysis fails for all files.
  */
-export async function analyzeImageFiles(files) {
+export async function analyzeImageFiles(files, categoryOptions) {
   const metrics = [];
   for (const file of files) {
     try {
@@ -271,11 +298,11 @@ export async function analyzeImageFiles(files) {
   }
   const merged = mergeMetrics(metrics);
   if (!merged) return null;
-  return deriveSuggestions(merged);
+  return deriveSuggestions(merged, categoryOptions);
 }
 
 /** Analyze remote image URLs (e.g. after Cloudinary upload). Uses the most recent image. */
-export async function analyzeImageUrls(urls) {
+export async function analyzeImageUrls(urls, categoryOptions) {
   const metrics = [];
   for (const url of (urls || []).filter(Boolean).slice(-1)) {
     try {
@@ -294,5 +321,5 @@ export async function analyzeImageUrls(urls) {
   }
   const merged = mergeMetrics(metrics);
   if (!merged) return null;
-  return deriveSuggestions(merged);
+  return deriveSuggestions(merged, categoryOptions);
 }

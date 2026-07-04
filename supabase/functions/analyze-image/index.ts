@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,33 +11,71 @@ const EVENT_TYPES = [
   "Family", "Corporate", "Casual Portrait", "Formal Portrait",
 ];
 
-const THEMES = [
-  "Rustic", "Elegant", "Vintage", "Modern", "Minimalist", "Bohemian", "Garden",
-  "Beach", "Nature", "Floral", "Studio Portrait", "Classic", "Luxury",
-  "Bright & Airy", "Dark & Moody", "Cinematic",
-];
+const FALLBACK_CATEGORIES = {
+  theme: ["Minimalist", "Modern", "Vintage", "Cinematic", "Floral", "Luxury", "Elegant", "Nature"],
+  mood: ["Romantic", "Joyful", "Formal", "Playful", "Cozy", "Dramatic", "Natural"],
+  location_type: ["Indoor", "Garden", "Beach", "Church", "Outdoor", "Nature"],
+  photography_style: ["Editorial", "Fine Art", "Aerial", "Close-up", "Portrait", "Candid", "Traditional"],
+};
 
-const MOODS = [
-  "Bright & Airy", "Dark & Moody", "Warm & Romantic", "Cool & Modern",
-  "Bold & Dramatic", "Soft & Natural", "Vibrant & Playful",
-];
+type CategoryOptions = {
+  theme: string[];
+  mood: string[];
+  location_type: string[];
+  photography_style: string[];
+};
 
-const LOCATIONS = [
-  "Indoor Studio", "Outdoor Garden", "Beach", "Urban / City",
-  "Nature / Forest", "Home / Lifestyle", "Venue / Hall",
-];
+function normalizeCategoryOptions(input?: Partial<CategoryOptions>): CategoryOptions {
+  return {
+    theme: input?.theme?.length ? [...input.theme] : [...FALLBACK_CATEGORIES.theme],
+    mood: input?.mood?.length ? [...input.mood] : [...FALLBACK_CATEGORIES.mood],
+    location_type: input?.location_type?.length ? [...input.location_type] : [...FALLBACK_CATEGORIES.location_type],
+    photography_style: input?.photography_style?.length
+      ? [...input.photography_style]
+      : [...FALLBACK_CATEGORIES.photography_style],
+  };
+}
 
-const STYLES = [
-  "Natural Light", "Studio Portrait", "Editorial / Fashion", "Candid Lifestyle",
-  "Fine Art", "Documentary", "Cinematic",
-];
+async function resolveCategoryOptions(body: { categoryOptions?: Partial<CategoryOptions> }): Promise<CategoryOptions> {
+  if (body?.categoryOptions?.theme?.length || body?.categoryOptions?.mood?.length) {
+    return normalizeCategoryOptions(body.categoryOptions);
+  }
+
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (url && key) {
+    const supabase = createClient(url, key);
+    const { data } = await supabase
+      .from("mood_board_categories")
+      .select("category_type, label")
+      .order("sort_order", { ascending: true })
+      .order("label", { ascending: true });
+
+    const grouped: CategoryOptions = { theme: [], mood: [], location_type: [], photography_style: [] };
+    for (const row of data || []) {
+      const type = row.category_type as keyof CategoryOptions;
+      if (grouped[type]) grouped[type].push(row.label);
+    }
+    if (grouped.theme.length || grouped.mood.length) {
+      return normalizeCategoryOptions(grouped);
+    }
+  }
+
+  return normalizeCategoryOptions();
+}
+
+function formatCategoryList(options: string[]) {
+  if (!options.length) return "(none configured — leave empty)";
+  return options.join(", ");
+}
 
 const SYSTEM_PROMPT =
   "You are a photography classification expert. Describe ONLY what is visible. " +
   "Occasion/event type must be proven by clothing, props, or setting — never by mood alone. " +
   "Romantic ≠ Wedding. Couple in graduation caps = Graduation. Return ONLY valid JSON.";
 
-function buildInstruction(imageCount: number) {
+function buildInstruction(imageCount: number, categoryOptions: CategoryOptions) {
+  const opts = normalizeCategoryOptions(categoryOptions);
   return `Analyze ${imageCount} image(s). For EACH image separately, then produce a merged result.
 
 Return JSON:
@@ -47,10 +86,10 @@ Return JSON:
       "visual_cues": string[] (8-12 items: exact clothing, props, people, setting you SEE),
       "event_type": string (one of: ${EVENT_TYPES.join(", ")} or ""),
       "event_confidence": "high" | "medium" | "low",
-      "theme": string (one of: ${THEMES.join(", ")}),
-      "mood": string (one of: ${MOODS.join(", ")}),
-      "photography_style": string (one of: ${STYLES.join(", ")}),
-      "location_type": string (one of: ${LOCATIONS.join(", ")}),
+      "theme": string (MUST be exactly one of: ${formatCategoryList(opts.theme)} — or ""),
+      "mood": string (MUST be exactly one of: ${formatCategoryList(opts.mood)} — or ""),
+      "photography_style": string (MUST be exactly one of: ${formatCategoryList(opts.photography_style)} — or ""),
+      "location_type": string (MUST be exactly one of: ${formatCategoryList(opts.location_type)} — or ""),
       "lighting_style": string,
       "editing_style": string,
       "color_palette": string[] (4-6 hex from THIS image),
@@ -87,7 +126,29 @@ CLASSIFICATION RULES (strict):
 • CASUAL PORTRAIT: everyday wear, no celebration props
 • FORMAL PORTRAIT: studio pose, evening wear, no event props
 
-If unsure of event_type use "" and event_confidence "low". Do NOT guess Wedding or Classic.`;
+If unsure of event_type use "" and event_confidence "low". Do NOT invent category labels outside the lists above.`;
+}
+
+const EVENT_THEME_HINTS: Record<string, string[]> = {
+  Graduation: ["elegant", "formal", "classic"],
+  Wedding: ["elegant", "luxury", "romantic", "floral"],
+  Birthday: ["playful", "modern", "floral"],
+  Debut: ["luxury", "elegant", "cinematic"],
+  Christening: ["elegant", "nature", "floral"],
+  Family: ["nature", "cozy", "natural"],
+  Corporate: ["modern", "minimalist", "elegant"],
+  "Casual Portrait": ["natural", "modern", "minimalist"],
+  "Formal Portrait": ["elegant", "luxury", "classic"],
+};
+
+function pickThemeForEvent(eventType: string, themes: string[]) {
+  if (!eventType || !themes.length) return "";
+  const hints = EVENT_THEME_HINTS[eventType] || [];
+  for (const hint of hints) {
+    const match = pickFromList(hint, themes);
+    if (match) return match;
+  }
+  return "";
 }
 
 const EVENT_SIGNALS: Record<string, RegExp> = {
@@ -208,28 +269,29 @@ type Suggestions = {
   tags: string[];
 };
 
-function buildFromPerImage(perImage: Record<string, unknown>[], merged: Record<string, unknown>, reasoning: string): {
+function buildFromPerImage(
+  perImage: Record<string, unknown>[],
+  merged: Record<string, unknown>,
+  reasoning: string,
+  categoryOptions: CategoryOptions
+): {
   suggestions: Suggestions;
   visual_cues: string[];
   occasion_reasoning: string;
   confidence: string;
 } {
+  const opts = normalizeCategoryOptions(categoryOptions);
   const allCues = perImage.flatMap((img) => asArray(img.visual_cues));
   const evidenceText = [reasoning, ...allCues, asText(merged.description)].join(" ").toLowerCase();
 
   const event_type = voteEvent(perImage, evidenceText) || pickFromList(asText(merged.event_type), EVENT_TYPES);
 
-  let theme = voteField(perImage, "theme", THEMES) || pickFromList(asText(merged.theme), THEMES);
-  if (!theme || theme === "Classic") {
-    const eventThemes: Record<string, string> = {
-      Graduation: "Elegant", Wedding: "Elegant", Birthday: "Bright & Airy",
-      Debut: "Luxury", Christening: "Bright & Airy", Family: "Garden",
-      Corporate: "Modern", "Casual Portrait": "Bright & Airy", "Formal Portrait": "Elegant",
-    };
-    theme = event_type ? (eventThemes[event_type] || "Elegant") : theme || "Elegant";
+  let theme = voteField(perImage, "theme", opts.theme) || pickFromList(asText(merged.theme), opts.theme);
+  if (!theme && event_type) {
+    theme = pickThemeForEvent(event_type, opts.theme);
   }
 
-  const mood = voteField(perImage, "mood", MOODS) || pickFromList(asText(merged.mood), MOODS) || "Soft & Natural";
+  const mood = voteField(perImage, "mood", opts.mood) || pickFromList(asText(merged.mood), opts.mood);
   const tagSet = new Set<string>();
   mergeUnique(perImage, "tags", 20).forEach((t) => tagSet.add(t.toLowerCase()));
   asArray(merged.tags).forEach((t) => tagSet.add(t.toLowerCase()));
@@ -243,9 +305,13 @@ function buildFromPerImage(perImage: Record<string, unknown>[], merged: Record<s
     suggestions: {
       theme,
       event_type,
-      photography_style: voteField(perImage, "photography_style", STYLES) || pickFromList(asText(merged.photography_style), STYLES) || "Natural Light",
+      photography_style:
+        voteField(perImage, "photography_style", opts.photography_style) ||
+        pickFromList(asText(merged.photography_style), opts.photography_style),
       mood,
-      location_type: voteField(perImage, "location_type", LOCATIONS) || pickFromList(asText(merged.location_type), LOCATIONS) || "Indoor Studio",
+      location_type:
+        voteField(perImage, "location_type", opts.location_type) ||
+        pickFromList(asText(merged.location_type), opts.location_type),
       lighting_style: asText(merged.lighting_style) || asText(perImage[0]?.lighting_style),
       editing_style: asText(merged.editing_style) || asText(perImage[0]?.editing_style),
       description: asText(merged.description),
@@ -299,7 +365,8 @@ async function callGeminiModel(
   apiKey: string,
   model: string,
   urls: string[],
-  imageParts: Awaited<ReturnType<typeof fetchImagePart>>[]
+  imageParts: Awaited<ReturnType<typeof fetchImagePart>>[],
+  categoryOptions: CategoryOptions
 ) {
   const maxAttempts = 2;
 
@@ -314,7 +381,7 @@ async function callGeminiModel(
           contents: [{
             role: "user",
             parts: [
-              { text: buildInstruction(urls.length) },
+              { text: buildInstruction(urls.length, categoryOptions) },
               ...imageParts.map((part, i) => [
                 { text: `--- Image ${i + 1} of ${urls.length} ---` },
                 part,
@@ -357,7 +424,7 @@ function geminiModels(): string[] {
   return [...new Set(list)];
 }
 
-async function analyzeWithGemini(urls: string[]) {
+async function analyzeWithGemini(urls: string[], categoryOptions: CategoryOptions) {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) return null;
 
@@ -366,7 +433,7 @@ async function analyzeWithGemini(urls: string[]) {
   let allQuota = true;
 
   for (const model of geminiModels()) {
-    const attempt = await callGeminiModel(apiKey, model, urls, imageParts);
+    const attempt = await callGeminiModel(apiKey, model, urls, imageParts, categoryOptions);
     if (attempt.ok) {
       const parsed = parseJsonContent(attempt.raw);
       const perImage: Record<string, unknown>[] = Array.isArray(parsed.per_image)
@@ -374,7 +441,7 @@ async function analyzeWithGemini(urls: string[]) {
         : [{ visual_cues: parsed.visual_cues, ...parsed } as Record<string, unknown>];
       const merged = (parsed.merged as Record<string, unknown>) || parsed;
       const reasoning = asText(parsed.occasion_reasoning);
-      const result = buildFromPerImage(perImage, merged, reasoning);
+      const result = buildFromPerImage(perImage, merged, reasoning, categoryOptions);
 
       return {
         suggestions: result.suggestions,
@@ -402,7 +469,7 @@ async function analyzeWithGemini(urls: string[]) {
   throw new Error(`gemini_request_failed: ${lastError}`);
 }
 
-async function analyzeWithOpenRouter(urls: string[]) {
+async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOptions) {
   const apiKey = Deno.env.get("OPENROUTER_API_KEY");
   if (!apiKey) return null;
 
@@ -424,7 +491,7 @@ async function analyzeWithOpenRouter(urls: string[]) {
 
   for (const model of [...new Set(models)]) {
     const content: Array<Record<string, unknown>> = [
-      { type: "text", text: buildInstruction(urls.length) },
+      { type: "text", text: buildInstruction(urls.length, categoryOptions) },
     ];
     for (const url of urls) {
       content.push({ type: "image_url", image_url: { url } });
@@ -471,7 +538,7 @@ async function analyzeWithOpenRouter(urls: string[]) {
         ? (parsed.per_image as Record<string, unknown>[])
         : [parsed as Record<string, unknown>];
       const merged = (parsed.merged as Record<string, unknown>) || parsed;
-      const result = buildFromPerImage(perImage, merged, asText(parsed.occasion_reasoning));
+      const result = buildFromPerImage(perImage, merged, asText(parsed.occasion_reasoning), categoryOptions);
 
       return {
         suggestions: result.suggestions,
@@ -491,12 +558,12 @@ async function analyzeWithOpenRouter(urls: string[]) {
   throw new Error(lastError || "openrouter_request_failed");
 }
 
-async function analyzeWithOpenAI(urls: string[]) {
+async function analyzeWithOpenAI(urls: string[], categoryOptions: CategoryOptions) {
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) return null;
 
   const model = Deno.env.get("OPENAI_MODEL") || "gpt-4o";
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: buildInstruction(urls.length) }];
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: buildInstruction(urls.length, categoryOptions) }];
   for (const url of urls) {
     content.push({ type: "image_url", image_url: { url, detail: "high" } });
   }
@@ -527,7 +594,7 @@ async function analyzeWithOpenAI(urls: string[]) {
     ? (parsed.per_image as Record<string, unknown>[])
     : [parsed as Record<string, unknown>];
   const merged = (parsed.merged as Record<string, unknown>) || parsed;
-  const result = buildFromPerImage(perImage, merged, asText(parsed.occasion_reasoning));
+  const result = buildFromPerImage(perImage, merged, asText(parsed.occasion_reasoning), categoryOptions);
 
   return {
     suggestions: result.suggestions,
@@ -544,9 +611,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { imageUrls } = await req.json();
+    const { imageUrls, categoryOptions: rawCategoryOptions } = await req.json();
     const urls: string[] = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 2) : [];
     if (!urls.length) return jsonResponse({ error: "imageUrls required" }, 400);
+
+    const categoryOptions = await resolveCategoryOptions({ categoryOptions: rawCategoryOptions });
 
     const hasOpenRouter = Boolean(Deno.env.get("OPENROUTER_API_KEY"));
     const hasGemini = Boolean(Deno.env.get("GEMINI_API_KEY"));
@@ -562,7 +631,7 @@ Deno.serve(async (req) => {
     // When OpenRouter is configured, use it only (avoid slow Gemini quota retries).
     if (hasOpenRouter) {
       try {
-        const result = await analyzeWithOpenRouter(urls);
+        const result = await analyzeWithOpenRouter(urls, categoryOptions);
         if (result) return jsonResponse({ ok: true, ...result });
       } catch (e) {
         const detail = (e as Error).message.slice(0, 400);
@@ -572,7 +641,7 @@ Deno.serve(async (req) => {
 
     if (hasGemini) {
       try {
-        const result = await analyzeWithGemini(urls);
+        const result = await analyzeWithGemini(urls, categoryOptions);
         if (result) return jsonResponse({ ok: true, ...result });
       } catch (e) {
         if (!hasOpenAI) throw e;
@@ -580,7 +649,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const openaiResult = await analyzeWithOpenAI(urls);
+    const openaiResult = await analyzeWithOpenAI(urls, categoryOptions);
     if (openaiResult) return jsonResponse({ ok: true, ...openaiResult });
 
     return jsonResponse({ ok: false, error: "vision_not_configured" });

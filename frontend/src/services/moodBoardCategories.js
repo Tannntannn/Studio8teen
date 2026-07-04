@@ -80,3 +80,50 @@ export const MOOD_BOARD_CATEGORY_META = {
   location_type: { title: "Location Type", addPlaceholder: "e.g. Studio" },
   photography_style: { title: "Photography Style", addPlaceholder: "e.g. Documentary" },
 };
+
+export function normCategory(value) {
+  return String(value || "").toLowerCase().trim();
+}
+
+/** Pick the closest admin-defined label from a list of allowed options. */
+export function pickFromCategoryList(raw, options) {
+  if (!raw || !options?.length) return "";
+  const n = normCategory(raw);
+  const exact = options.find((o) => normCategory(o) === n);
+  if (exact) return exact;
+  return options.find((o) => n.includes(normCategory(o)) || normCategory(o).includes(n)) || "";
+}
+
+/** Try several hint strings against admin options (first match wins). */
+export function pickFromCategoryHints(hints, options) {
+  if (!options?.length) return "";
+  for (const hint of hints) {
+    const match = pickFromCategoryList(hint, options);
+    if (match) return match;
+  }
+  return "";
+}
+
+/** Ensure category option lists are always populated (admin DB or fallback seed). */
+export function normalizeCategoryOptions(input) {
+  const fb = FALLBACK_MOOD_BOARD_CATEGORIES;
+  return {
+    theme: input?.theme?.length ? [...input.theme] : [...fb.theme],
+    mood: input?.mood?.length ? [...input.mood] : [...fb.mood],
+    location_type: input?.location_type?.length ? [...input.location_type] : [...fb.location_type],
+    photography_style: input?.photography_style?.length ? [...input.photography_style] : [...fb.photography_style],
+  };
+}
+
+/** Restrict AI output to admin-managed category labels only. */
+export function clampSuggestionsToCategories(suggestions, categoryOptions) {
+  if (!suggestions) return suggestions;
+  const opts = normalizeCategoryOptions(categoryOptions);
+  return {
+    ...suggestions,
+    theme: pickFromCategoryList(suggestions.theme, opts.theme),
+    mood: pickFromCategoryList(suggestions.mood, opts.mood),
+    location_type: pickFromCategoryList(suggestions.location_type, opts.location_type),
+    photography_style: pickFromCategoryList(suggestions.photography_style, opts.photography_style),
+  };
+}

@@ -193,7 +193,7 @@ export default function AdminMoodBoardThemes() {
     if (!analyzeUrls.length) return;
 
     if (localPalette) {
-      applySuggestions(localColorSuggestionsOnly(localPalette) || localPalette, { overwrite });
+      applySuggestions(localColorSuggestionsOnly(localPalette, categoryLabels) || localPalette, { overwrite });
       setSuggestionNote("Quick suggestions applied — enhancing with AI...");
     } else {
       setSuggestionNote("Enhancing with AI...");
@@ -201,6 +201,7 @@ export default function AdminMoodBoardThemes() {
 
     const result = await analyzeImagesWithVision(analyzeUrls, {
       onStatus: (msg) => setSuggestionNote(msg),
+      categoryOptions: categoryLabels,
     });
 
     if (result?.suggestions) {
@@ -224,7 +225,7 @@ export default function AdminMoodBoardThemes() {
       return;
     }
 
-    const colorsOnly = localColorSuggestionsOnly(localPalette);
+    const colorsOnly = localColorSuggestionsOnly(localPalette, categoryLabels);
     if (colorsOnly) applySuggestions(colorsOnly, { overwrite });
     const detail = result?.meta?.detail;
     if (result?.meta?.error === "rate_limited") {
@@ -241,9 +242,9 @@ export default function AdminMoodBoardThemes() {
     setUploading(true);
     setSuggestionNote("Reading colors from your images...");
     try {
-      const local = await analyzeImageFiles(files);
+      const local = await analyzeImageFiles(files, categoryLabels);
       if (local) {
-        applySuggestions(localColorSuggestionsOnly(local) || local, { overwrite: false });
+        applySuggestions(localColorSuggestionsOnly(local, categoryLabels) || local, { overwrite: false });
         setSuggestionNote("Quick suggestions ready — uploading images...");
       }
 
@@ -276,9 +277,9 @@ export default function AdminMoodBoardThemes() {
     }
     setAnalyzing(true);
     try {
-      const local = await analyzeImageUrls(urls);
+      const local = await analyzeImageUrls(urls, categoryLabels);
       if (local) {
-        applySuggestions(localColorSuggestionsOnly(local) || local, { overwrite });
+        applySuggestions(localColorSuggestionsOnly(local, categoryLabels) || local, { overwrite });
       }
       await runVisionAnalysis(urls, { overwrite, localPalette: local });
     } catch (err) {
