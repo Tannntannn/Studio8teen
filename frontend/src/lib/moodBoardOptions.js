@@ -60,3 +60,9 @@ export const PHOTOGRAPHY_STYLES = [
   "Documentary",
   "Cinematic",
 ];
+
+/** Client dropdown options — static catalogs plus any extra names from admin themes. */
+export function getClientThemeOptions(adminThemeNames = []) {
+  const merged = new Set([...DEFAULT_THEMES, ...adminThemeNames.filter(Boolean)]);
+  return [...merged].sort((a, b) => a.localeCompare(b));
+}

@@ -8,9 +8,10 @@ import {
   MOOD_OPTIONS,
   LOCATION_TYPES,
   PHOTOGRAPHY_STYLES,
+  getClientThemeOptions,
 } from "../../lib/moodBoardOptions";
 import { filterThemesByEvent } from "../../lib/themeMatching";
-import { generateMoodBoard, getThemeNamesForEvent } from "../../lib/moodBoardEngine";
+import { generateMoodBoard } from "../../lib/moodBoardEngine";
 
 const EMPTY_PREFS = {
   eventType: "",
@@ -41,10 +42,10 @@ export default function MoodBoardGenerator() {
       .finally(() => setLoadingThemes(false));
   }, []);
 
-  const themeOptions = useMemo(
-    () => getThemeNamesForEvent(themes, prefs.eventType),
-    [themes, prefs.eventType]
-  );
+  const themeOptions = useMemo(() => {
+    const fromAdmin = themes.map((t) => t.name).filter(Boolean);
+    return getClientThemeOptions(fromAdmin);
+  }, [themes]);
 
   const candidateImageCount = useMemo(
     () =>
@@ -58,8 +59,7 @@ export default function MoodBoardGenerator() {
   const setPref = (key, value) => setPrefs((p) => ({ ...p, [key]: value }));
 
   const handleEventChange = (value) => {
-    // Reset the optional theme when the event changes (theme list depends on it).
-    setPrefs((p) => ({ ...p, eventType: value, theme: "" }));
+    setPrefs((p) => ({ ...p, eventType: value }));
   };
 
   const handleGenerate = (e) => {
@@ -68,6 +68,11 @@ export default function MoodBoardGenerator() {
 
     if (!prefs.eventType) {
       setGenerateError("Please select your event type first.");
+      return;
+    }
+
+    if (loadingThemes) {
+      setGenerateError("Still loading studio inspiration. Please try again in a moment.");
       return;
     }
 
@@ -115,26 +120,13 @@ export default function MoodBoardGenerator() {
           </p>
         </div>
 
-        {loadingThemes && (
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-12 text-center text-gray-400">
-            Loading available themes...
+        {loadError && !generated && (
+          <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-6 text-amber-800 text-sm text-center">
+            Could not refresh the inspiration library. You can still choose preferences below — generation may be limited until the connection is restored.
           </div>
         )}
 
-        {loadError && !loadingThemes && (
-          <div className="bg-red-50 border border-red-100 rounded-2xl p-8 text-center text-red-600">
-            {loadError}
-          </div>
-        )}
-
-        {!loadingThemes && !loadError && themes.length === 0 && (
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-12 text-center">
-            <h2 className="font-semibold text-[#5B4636]">No themes available yet</h2>
-            <p className="text-gray-500 mt-2 text-sm">The studio is preparing mood board themes. Please check back soon.</p>
-          </div>
-        )}
-
-        {!loadingThemes && !loadError && themes.length > 0 && !generated && (
+        {!generated && (
           <form onSubmit={handleGenerate} className="bg-white rounded-2xl border border-[#E8E1DA] p-6 md:p-8 space-y-5 shadow-sm">
             <div>
               <h2 className="font-semibold text-[#5B4636] text-lg">Tell us your preferences</h2>
@@ -178,8 +170,7 @@ export default function MoodBoardGenerator() {
                 <select
                   value={prefs.theme}
                   onChange={(e) => setPref("theme", e.target.value)}
-                  disabled={!prefs.eventType || themeOptions.length === 0}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
                   {themeOptions.map((name) => (
@@ -195,8 +186,7 @@ export default function MoodBoardGenerator() {
                 <select
                   value={prefs.mood}
                   onChange={(e) => setPref("mood", e.target.value)}
-                  disabled={!prefs.eventType}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
                   {MOOD_OPTIONS.map((m) => (
@@ -212,8 +202,7 @@ export default function MoodBoardGenerator() {
                 <select
                   value={prefs.locationType}
                   onChange={(e) => setPref("locationType", e.target.value)}
-                  disabled={!prefs.eventType}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
                   {LOCATION_TYPES.map((l) => (
@@ -229,8 +218,7 @@ export default function MoodBoardGenerator() {
                 <select
                   value={prefs.photographyStyle}
                   onChange={(e) => setPref("photographyStyle", e.target.value)}
-                  disabled={!prefs.eventType}
-                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                  className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
                 >
                   <option value="">No preference</option>
                   {PHOTOGRAPHY_STYLES.map((s) => (
@@ -251,13 +239,19 @@ export default function MoodBoardGenerator() {
               />
             </div>
 
+            {loadingThemes && (
+              <p className="text-xs text-gray-500 bg-[#F8F6F3] border border-[#E8E1DA] rounded-xl px-4 py-3">
+                Loading studio inspiration library…
+              </p>
+            )}
+
             {generateError && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">{generateError}</p>
             )}
 
             <button
               type="submit"
-              disabled={generating || !prefs.eventType || noImagesForEvent}
+              disabled={generating || !prefs.eventType || loadingThemes || noImagesForEvent}
               className="w-full py-3.5 rounded-xl bg-[#A98B75] text-white font-medium hover:bg-[#8a7260] disabled:opacity-50 transition"
             >
               {generating ? "Generating mood board..." : "Generate Mood Board"}
