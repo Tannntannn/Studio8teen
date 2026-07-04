@@ -38,20 +38,31 @@ export default function AdminPortfolio() {
   }, []);
 
   const uploadPose = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     setUploadingPose(true);
     try {
-      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.poses);
-      await addPoseSuggestion({
-        category: poseMeta.category,
-        description: poseMeta.description || poseMeta.category,
-        cloudinary_url: url,
-        cloudinary_public_id: publicId,
-      });
+      await Promise.all(
+        files.map(async (file, index) => {
+          const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.poses);
+          const baseDescription = poseMeta.description || poseMeta.category;
+          const description = files.length > 1 ? `${baseDescription} (${index + 1})` : baseDescription;
+          await addPoseSuggestion({
+            category: poseMeta.category,
+            description,
+            cloudinary_url: url,
+            cloudinary_public_id: publicId,
+          });
+        })
+      );
       setPoseMeta((m) => ({ ...m, description: "" }));
       await loadPoses();
-      Swal.fire({ icon: "success", title: "Pose uploaded", timer: 1500, showConfirmButton: false });
+      Swal.fire({
+        icon: "success",
+        title: files.length === 1 ? "Pose uploaded" : `${files.length} poses uploaded`,
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
     } finally {
@@ -61,8 +72,8 @@ export default function AdminPortfolio() {
   };
 
   const uploadPortfolio = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     if (!portfolioMeta.title.trim()) {
       Swal.fire({ icon: "warning", title: "Title required", text: "Enter a title before uploading." });
       e.target.value = "";
@@ -70,17 +81,28 @@ export default function AdminPortfolio() {
     }
     setUploadingPortfolio(true);
     try {
-      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.publicPortfolio);
-      await addPublicPortfolioItem({
-        title: portfolioMeta.title.trim(),
-        category: portfolioMeta.category,
-        cloudinary_url: url,
-        cloudinary_public_id: publicId,
-        uploaded_by: user?.id || null,
-      });
+      const baseTitle = portfolioMeta.title.trim();
+      await Promise.all(
+        files.map(async (file, index) => {
+          const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.publicPortfolio);
+          const title = files.length > 1 ? `${baseTitle} (${index + 1})` : baseTitle;
+          await addPublicPortfolioItem({
+            title,
+            category: portfolioMeta.category,
+            cloudinary_url: url,
+            cloudinary_public_id: publicId,
+            uploaded_by: user?.id || null,
+          });
+        })
+      );
       setPortfolioMeta((m) => ({ ...m, title: "" }));
       await loadPortfolio();
-      Swal.fire({ icon: "success", title: "Portfolio image uploaded", timer: 1500, showConfirmButton: false });
+      Swal.fire({
+        icon: "success",
+        title: files.length === 1 ? "Portfolio image uploaded" : `${files.length} portfolio images uploaded`,
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
     } finally {
@@ -105,7 +127,7 @@ export default function AdminPortfolio() {
     <AdminLayout>
       <div>
         <h1 className="heading-serif text-4xl font-bold text-[#5B4636] mb-2">Pose Suggestions</h1>
-        <p className="text-gray-500 mb-8">Upload poses for clients to browse in the Pose Gallery.</p>
+        <p className="text-gray-500 mb-8">Upload poses for clients to browse in the Pose Gallery. You can select one or many images at once.</p>
 
         <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 flex flex-wrap gap-4 items-end mb-8">
           <div>
@@ -130,8 +152,8 @@ export default function AdminPortfolio() {
             />
           </div>
           <label className="px-4 py-2.5 rounded-xl bg-[#A98B75] text-white cursor-pointer text-sm font-medium hover:bg-[#8a7260] transition">
-            {uploadingPose ? "Uploading..." : "Upload Pose Image"}
-            <input type="file" accept="image/*" onChange={uploadPose} className="hidden" disabled={uploadingPose} />
+            {uploadingPose ? "Uploading..." : "Upload pose image(s)"}
+            <input type="file" accept="image/*" multiple onChange={uploadPose} className="hidden" disabled={uploadingPose} />
           </label>
         </div>
 
@@ -174,7 +196,7 @@ export default function AdminPortfolio() {
         <section className="mt-16 pt-10 border-t border-[#E8E1DA]">
           <h2 className="heading-serif text-3xl font-bold text-[#5B4636] mb-2">Public Portfolio</h2>
           <p className="text-gray-500 mb-8">
-            Upload studio work shown on the homepage, public portfolio page, and at the bottom of the client Pose Gallery.
+            Upload studio work shown on the homepage, public portfolio page, and at the bottom of the client Pose Gallery. Select one or many images at once — multiple uploads use the title with (1), (2), etc.
           </p>
 
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 flex flex-wrap gap-4 items-end mb-8">
@@ -200,8 +222,8 @@ export default function AdminPortfolio() {
               />
             </div>
             <label className="px-4 py-2.5 rounded-xl bg-[#5B4636] text-white cursor-pointer text-sm font-medium hover:bg-[#4a3829] transition">
-              {uploadingPortfolio ? "Uploading..." : "Upload Portfolio Image"}
-              <input type="file" accept="image/*" onChange={uploadPortfolio} className="hidden" disabled={uploadingPortfolio} />
+              {uploadingPortfolio ? "Uploading..." : "Upload portfolio image(s)"}
+              <input type="file" accept="image/*" multiple onChange={uploadPortfolio} className="hidden" disabled={uploadingPortfolio} />
             </label>
           </div>
 

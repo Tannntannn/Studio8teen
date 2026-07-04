@@ -7,6 +7,7 @@ import { getAllClients } from "../../services/profiles";
 import { addClientGalleryItem, getClientGalleryByClientId, deleteClientGalleryItem } from "../../services/gallery";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
 import { useAuth } from "../../context/AuthContext";
+import Swal from "sweetalert2";
 
 export default function AdminClientGalleries() {
   const { user } = useAuth();
@@ -32,16 +33,26 @@ export default function AdminClientGalleries() {
     if (!files.length || !clientId) return;
     setUploading(true);
     try {
-      for (const file of files) {
-        const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.clientGallery(clientId));
-        await addClientGalleryItem({
-          client_id: clientId,
-          cloudinary_url: url,
-          cloudinary_public_id: publicId,
-          uploaded_by: user.id,
-        });
-      }
-      getClientGalleryByClientId(clientId).then(setItems);
+      await Promise.all(
+        files.map(async (file) => {
+          const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.clientGallery(clientId));
+          await addClientGalleryItem({
+            client_id: clientId,
+            cloudinary_url: url,
+            cloudinary_public_id: publicId,
+            uploaded_by: user.id,
+          });
+        })
+      );
+      await getClientGalleryByClientId(clientId).then(setItems);
+      Swal.fire({
+        icon: "success",
+        title: files.length === 1 ? "Photo uploaded" : `${files.length} photos uploaded`,
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -66,7 +77,7 @@ export default function AdminClientGalleries() {
     <AdminLayout>
       <div>
         <h1 className="heading-serif text-4xl font-bold text-[#5B4636] mb-2">Client Galleries</h1>
-        <p className="text-gray-500 mb-8">Upload post-shoot photos. Click any image to preview full size.</p>
+        <p className="text-gray-500 mb-8">Upload post-shoot photos — select one or many images at once. Click any image to preview full size.</p>
 
         <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 mb-8">
           <select
@@ -84,7 +95,7 @@ export default function AdminClientGalleries() {
               clientId ? "bg-[#A98B75] hover:bg-[#8a7260]" : "bg-gray-300 pointer-events-none"
             }`}
           >
-            {uploading ? "Uploading..." : "Upload Photos (multiple)"}
+            {uploading ? "Uploading..." : "Upload photo(s)"}
             <input type="file" accept="image/*" multiple onChange={handleBulkUpload} className="hidden" disabled={!clientId || uploading} />
           </label>
         </div>
