@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ScrollReveal from "../ui/ScrollReveal";
+import ImageLightbox from "../ui/ImageLightbox";
 import { getPublicPortfolio } from "../../services/gallery";
 import { getGalleryUrl } from "../../lib/cloudinary";
 
 function Portfolio() {
   const [items, setItems] = useState([]);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
 
   useEffect(() => {
     getPublicPortfolio()
@@ -28,7 +30,7 @@ function Portfolio() {
             </h2>
             <div className="section-divider" />
             <p className="mt-5 text-gray-500 max-w-2xl mx-auto leading-relaxed">
-              Explore weddings, birthdays, studio sessions, and special events.
+              Explore weddings, birthdays, casual sessions, and special events.
             </p>
           </div>
         </ScrollReveal>
@@ -44,21 +46,28 @@ function Portfolio() {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {items.map((item) => (
-                <div key={item.id} className="group relative overflow-hidden rounded-2xl aspect-[4/3]">
+              {items.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setLightboxIndex(index)}
+                  className="group relative overflow-hidden rounded-2xl aspect-[4/3] text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A98B75]"
+                >
                   <img
                     src={getGalleryUrl(item.cloudinary_url, 600)}
-                    alt={item.title}
+                    alt={item.title || item.category}
                     loading="lazy"
                     className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
                     <div>
                       <span className="text-white/70 text-xs uppercase">{item.category}</span>
-                      <h3 className="text-white font-semibold">{item.title}</h3>
+                      {item.title && item.title !== item.category && (
+                        <h3 className="text-white font-semibold">{item.title}</h3>
+                      )}
                     </div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -72,6 +81,16 @@ function Portfolio() {
           </div>
         </ScrollReveal>
       </div>
+
+      {lightboxIndex != null && (
+        <ImageLightbox
+          images={items}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+          meta={items[lightboxIndex]?.category}
+        />
+      )}
     </section>
   );
 }

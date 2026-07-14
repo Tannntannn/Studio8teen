@@ -15,7 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
 
 const POSE_CATEGORIES = ["Portrait", "Couple", "Group", "Wedding", "Creative"];
-const PORTFOLIO_CATEGORIES = ["Wedding", "Birthday", "Studio", "Corporate"];
+const PORTFOLIO_CATEGORIES = ["Wedding", "Birthday", "Casual", "Corporate"];
 
 export default function AdminPortfolio() {
   const { user } = useAuth();
@@ -24,7 +24,7 @@ export default function AdminPortfolio() {
   const [uploadingPose, setUploadingPose] = useState(false);
   const [uploadingPortfolio, setUploadingPortfolio] = useState(false);
   const [poseMeta, setPoseMeta] = useState({ category: "Portrait", description: "" });
-  const [portfolioMeta, setPortfolioMeta] = useState({ title: "", category: "Studio" });
+  const [portfolioMeta, setPortfolioMeta] = useState({ category: "Casual" });
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [poseLightboxIndex, setPoseLightboxIndex] = useState(null);
   const [portfolioLightboxIndex, setPortfolioLightboxIndex] = useState(null);
@@ -74,18 +74,15 @@ export default function AdminPortfolio() {
   const uploadPortfolio = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    if (!portfolioMeta.title.trim()) {
-      Swal.fire({ icon: "warning", title: "Title required", text: "Enter a title before uploading." });
-      e.target.value = "";
-      return;
-    }
     setUploadingPortfolio(true);
     try {
-      const baseTitle = portfolioMeta.title.trim();
       await Promise.all(
         files.map(async (file, index) => {
           const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.publicPortfolio);
-          const title = files.length > 1 ? `${baseTitle} (${index + 1})` : baseTitle;
+          const title =
+            files.length > 1
+              ? `${portfolioMeta.category} (${index + 1})`
+              : portfolioMeta.category;
           await addPublicPortfolioItem({
             title,
             category: portfolioMeta.category,
@@ -95,7 +92,6 @@ export default function AdminPortfolio() {
           });
         })
       );
-      setPortfolioMeta((m) => ({ ...m, title: "" }));
       await loadPortfolio();
       Swal.fire({
         icon: "success",
@@ -196,7 +192,7 @@ export default function AdminPortfolio() {
         <section className="mt-16 pt-10 border-t border-[#E8E1DA]">
           <h2 className="heading-serif text-3xl font-bold text-[#5B4636] mb-2">Public Portfolio</h2>
           <p className="text-gray-500 mb-8">
-            Upload studio work shown on the homepage, public portfolio page, and at the bottom of the client Pose Gallery. Select one or many images at once — multiple uploads use the title with (1), (2), etc.
+            Upload work shown on the homepage, public portfolio page, and client Pose Gallery. Select a category, then upload one or many images.
           </p>
 
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 flex flex-wrap gap-4 items-end mb-8">
@@ -211,15 +207,6 @@ export default function AdminPortfolio() {
                   <option key={c}>{c}</option>
                 ))}
               </select>
-            </div>
-            <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs text-gray-500 mb-1">Title</label>
-              <input
-                placeholder="e.g. Garden Wedding"
-                value={portfolioMeta.title}
-                onChange={(e) => setPortfolioMeta({ ...portfolioMeta, title: e.target.value })}
-                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-2 text-sm"
-              />
             </div>
             <label className="px-4 py-2.5 rounded-xl bg-[#5B4636] text-white cursor-pointer text-sm font-medium hover:bg-[#4a3829] transition">
               {uploadingPortfolio ? "Uploading..." : "Upload portfolio image(s)"}
@@ -241,7 +228,7 @@ export default function AdminPortfolio() {
                   <button type="button" onClick={() => setPortfolioLightboxIndex(i)} className="w-full h-full">
                     <img
                       src={getThumbnailUrl(item.cloudinary_url, 400, 400)}
-                      alt={item.title}
+                      alt={item.title || item.category}
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                       loading="lazy"
                       onError={(e) => { e.target.src = item.cloudinary_url; }}
@@ -249,7 +236,6 @@ export default function AdminPortfolio() {
                   </button>
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition">
                     <p className="text-white text-xs font-medium">{item.category}</p>
-                    <p className="text-white/80 text-[10px] truncate">{item.title}</p>
                   </div>
                   <button
                     type="button"
@@ -281,7 +267,7 @@ export default function AdminPortfolio() {
           index={portfolioLightboxIndex}
           onClose={() => setPortfolioLightboxIndex(null)}
           onNavigate={setPortfolioLightboxIndex}
-          meta={`${portfolio[portfolioLightboxIndex]?.category} — ${portfolio[portfolioLightboxIndex]?.title}`}
+          meta={portfolio[portfolioLightboxIndex]?.category}
         />
       )}
 
@@ -290,7 +276,7 @@ export default function AdminPortfolio() {
         title={deleteTarget?.type === "portfolio" ? "Delete portfolio image?" : "Delete pose?"}
         message={
           deleteTarget?.type === "portfolio"
-            ? `Remove "${deleteTarget?.item?.title}" from the public portfolio?`
+            ? `Remove this ${deleteTarget?.item?.category || "portfolio"} image from the public portfolio?`
             : `Remove "${deleteTarget?.item?.category}" pose from the gallery? Clients will no longer see it.`
         }
         confirmLabel="Delete"

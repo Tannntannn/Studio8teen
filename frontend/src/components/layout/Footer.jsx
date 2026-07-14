@@ -1,4 +1,5 @@
 import logo from "../../assets/StudioLogo.jpg";
+import { Link } from "react-router-dom";
 import { FaFacebookF, FaHeart } from "react-icons/fa";
 import { STUDIO_PHONE, STUDIO_PHONE_DISPLAY } from "../../lib/constants";
 
@@ -97,8 +98,13 @@ function Footer() {
           <span>
             © {currentYear} Studio 8Teen Photography Services. All Rights Reserved.
           </span>
-          <span className="flex items-center gap-1">
-            Made with <FaHeart className="text-[#A98B75] text-[10px]" /> in Tayabas City, Quezon
+          <span className="flex items-center gap-3">
+            <Link to="/terms" className="hover:text-[#A98B75] transition">
+              Terms & Conditions
+            </Link>
+            <span className="flex items-center gap-1">
+              Made with <FaHeart className="text-[#A98B75] text-[10px]" /> in Tayabas City, Quezon
+            </span>
           </span>
         </div>
       </div>

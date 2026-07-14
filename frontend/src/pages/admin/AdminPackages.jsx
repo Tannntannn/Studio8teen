@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import AdminLayout from "../../components/layout/AdminLayout";
 import { createPackage, deletePackage, getAllPackages, syncPackagesFromCatalog, updatePackage } from "../../services/packages";
 import { ADDONS_CATALOG, PACKAGES_CATALOG } from "../../data/packagesCatalog";
+import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
 import Swal from "sweetalert2";
 
 const CATEGORY_LABELS = {
@@ -18,6 +19,9 @@ const EMPTY_FORM = {
   description: "",
   features: "",
   is_popular: false,
+  allows_walk_in: false,
+  image_url: "",
+  image_public_id: "",
 };
 
 export default function AdminPackages() {
@@ -28,6 +32,8 @@ export default function AdminPackages() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageBusyId, setImageBusyId] = useState(null);
 
   const load = () => getAllPackages().then(setPackages).catch(console.error);
 
@@ -46,7 +52,7 @@ export default function AdminPackages() {
   const handleSync = async () => {
     const { isConfirmed } = await Swal.fire({
       title: "Sync packages from catalog?",
-      text: "This updates all packages to match the official Studio 8Teen package pictures.",
+      text: "This updates package details to match the official Studio 8Teen catalog. Existing package images are kept.",
       icon: "question",
       showCancelButton: true,
     });
@@ -68,6 +74,55 @@ export default function AdminPackages() {
     load();
   };
 
+  const toggleWalkIn = async (pkg) => {
+    await updatePackage(pkg.id, { allows_walk_in: !pkg.allows_walk_in });
+    load();
+  };
+
+  const uploadFormImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.packages);
+      setForm((f) => ({ ...f, image_url: url, image_public_id: publicId }));
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Image upload failed", text: err.message });
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
+    }
+  };
+
+  const uploadPackageImage = async (pkg, e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageBusyId(pkg.id);
+    try {
+      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.packages);
+      await updatePackage(pkg.id, { image_url: url, image_public_id: publicId });
+      await load();
+      Swal.fire({ icon: "success", title: "Package image updated", timer: 1200, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Image upload failed", text: err.message });
+    } finally {
+      setImageBusyId(null);
+      e.target.value = "";
+    }
+  };
+
+  const removePackageImage = async (pkg) => {
+    setImageBusyId(pkg.id);
+    try {
+      await updatePackage(pkg.id, { image_url: null, image_public_id: null });
+      await load();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Could not remove image", text: err.message });
+    } finally {
+      setImageBusyId(null);
+    }
+  };
+
   const handleCreate = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || !form.price) return;
@@ -84,6 +139,9 @@ export default function AdminPackages() {
           .filter(Boolean),
         is_active: true,
         is_popular: form.is_popular,
+        allows_walk_in: form.allows_walk_in,
+        image_url: form.image_url || null,
+        image_public_id: form.image_public_id || null,
       });
       setForm(EMPTY_FORM);
       setShowForm(false);
@@ -127,7 +185,7 @@ export default function AdminPackages() {
           <div>
             <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Packages</h1>
             <p className="text-gray-500 mt-2">
-              Official pricing from Studio 8Teen package pictures · {PACKAGES_CATALOG.length} packages in catalog
+              Official pricing from Studio 8Teen · {PACKAGES_CATALOG.length} packages in catalog
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -188,6 +246,28 @@ export default function AdminPackages() {
               onChange={(e) => setForm({ ...form, features: e.target.value })}
               className="border rounded-xl px-3 py-2 text-sm md:col-span-2 min-h-[100px]"
             />
+            <div className="md:col-span-2 flex flex-wrap items-center gap-4">
+              {form.image_url ? (
+                <div className="relative w-28 h-28 rounded-xl overflow-hidden border border-[#E8E1DA]">
+                  <img src={getThumbnailUrl(form.image_url, 200, 200)} alt="Package preview" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, image_url: "", image_public_id: "" }))}
+                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="w-28 h-28 rounded-xl border border-dashed border-[#E8E1DA] bg-[#F8F6F3] flex items-center justify-center text-xs text-gray-400">
+                  No image
+                </div>
+              )}
+              <label className="px-4 py-2 rounded-xl bg-[#5B4636] text-white text-sm cursor-pointer hover:bg-[#4a3829]">
+                {uploadingImage ? "Uploading..." : "Upload package image"}
+                <input type="file" accept="image/*" className="hidden" onChange={uploadFormImage} disabled={uploadingImage} />
+              </label>
+            </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
@@ -195,6 +275,14 @@ export default function AdminPackages() {
                 onChange={(e) => setForm({ ...form, is_popular: e.target.checked })}
               />
               Mark as popular
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={form.allows_walk_in}
+                onChange={(e) => setForm({ ...form, allows_walk_in: e.target.checked })}
+              />
+              Allow same-day walk-ins
             </label>
             <button
               type="submit"
@@ -245,38 +333,78 @@ export default function AdminPackages() {
           {grouped.map((pkg) => (
             <div
               key={pkg.id}
-              className={`bg-white rounded-2xl border p-5 ${pkg.is_active ? "border-[#E8E1DA]" : "border-gray-200 opacity-75"}`}
+              className={`bg-white rounded-2xl border overflow-hidden ${pkg.is_active ? "border-[#E8E1DA]" : "border-gray-200 opacity-75"}`}
             >
-              <div className="flex justify-between items-start gap-2 mb-2">
-                <div>
-                  <span className="text-[10px] uppercase tracking-wider text-[#A98B75] font-semibold">
-                    {CATEGORY_LABELS[pkg.category] || pkg.category || "Package"}
-                  </span>
-                  <h3 className="font-bold text-[#5B4636] text-lg">{pkg.name}</h3>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  {pkg.is_popular && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A98B75] text-white">Popular</span>
-                  )}
-                  {!pkg.is_active && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">Inactive</span>
-                  )}
-                </div>
+              <div className="relative aspect-[16/10] bg-[#F8F6F3]">
+                {pkg.image_url ? (
+                  <img
+                    src={getThumbnailUrl(pkg.image_url, 600, 380)}
+                    alt={pkg.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-sm text-gray-400">No package image</div>
+                )}
               </div>
-              <p className="text-2xl font-bold text-[#A98B75] mb-2">₱{Number(pkg.price).toLocaleString()}</p>
-              {pkg.description && <p className="text-sm text-gray-500 mb-3">{pkg.description}</p>}
-              <ul className="text-xs text-gray-600 space-y-1 mb-4">
-                {(Array.isArray(pkg.features) ? pkg.features : []).map((f, i) => (
-                  <li key={i}>• {f}</li>
-                ))}
-              </ul>
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => toggleActive(pkg)} className="text-xs text-[#A98B75] font-medium">
-                  {pkg.is_active ? "Deactivate" : "Activate"}
-                </button>
-                <button type="button" onClick={() => handleDelete(pkg)} className="text-xs text-red-500">
-                  Remove
-                </button>
+              <div className="p-5">
+                <div className="flex justify-between items-start gap-2 mb-2">
+                  <div>
+                    <span className="text-[10px] uppercase tracking-wider text-[#A98B75] font-semibold">
+                      {CATEGORY_LABELS[pkg.category] || pkg.category || "Package"}
+                    </span>
+                    <h3 className="font-bold text-[#5B4636] text-lg">{pkg.name}</h3>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    {pkg.is_popular && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#A98B75] text-white">Popular</span>
+                    )}
+                    {pkg.allows_walk_in && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">Walk-in</span>
+                    )}
+                    {!pkg.is_active && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">Inactive</span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-[#A98B75] mb-2">₱{Number(pkg.price).toLocaleString()}</p>
+                {pkg.description && <p className="text-sm text-gray-500 mb-3">{pkg.description}</p>}
+                <ul className="text-xs text-gray-600 space-y-1 mb-4">
+                  {(Array.isArray(pkg.features) ? pkg.features : []).map((f, i) => (
+                    <li key={i}>• {f}</li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap gap-3 items-center">
+                  <label className="text-xs text-[#5B4636] font-medium cursor-pointer hover:underline">
+                    {imageBusyId === pkg.id ? "Uploading..." : pkg.image_url ? "Change image" : "Add image"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={imageBusyId === pkg.id}
+                      onChange={(e) => uploadPackageImage(pkg, e)}
+                    />
+                  </label>
+                  {pkg.image_url && (
+                    <button
+                      type="button"
+                      onClick={() => removePackageImage(pkg)}
+                      disabled={imageBusyId === pkg.id}
+                      className="text-xs text-gray-500 hover:text-red-500"
+                    >
+                      Remove image
+                    </button>
+                  )}
+                  <button type="button" onClick={() => toggleActive(pkg)} className="text-xs text-[#A98B75] font-medium">
+                    {pkg.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                  <button type="button" onClick={() => toggleWalkIn(pkg)} className="text-xs text-sky-700 font-medium">
+                    {pkg.allows_walk_in ? "Disable walk-in" : "Enable walk-in"}
+                  </button>
+                  <button type="button" onClick={() => handleDelete(pkg)} className="text-xs text-red-500">
+                    Remove
+                  </button>
+                </div>
               </div>
             </div>
           ))}

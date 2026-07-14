@@ -57,4 +57,5 @@ export const CLOUDINARY_FOLDERS = {
   moodBoard: (bookingId) => `studiobook/mood-boards/${bookingId}`,
   poses: "studiobook/poses",
   moodBoardThemes: "studiobook/mood-board-themes",
+  packages: "studiobook/packages",
 };

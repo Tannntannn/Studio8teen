@@ -7,6 +7,7 @@ import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
+import BookingPoseSuggestionsPanel from "../../components/booking/BookingPoseSuggestionsPanel";
 import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking } from "../../services/bookings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
@@ -234,7 +235,16 @@ export default function AdminBookingDetail() {
               <FaUser className="text-[#A98B75]" size={13} />
               {booking.profiles?.full_name || "—"} · {booking.profiles?.email || "no email"}
             </span>
+            {booking.is_walk_in && (
+              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-semibold">
+                Walk-in
+              </span>
+            )}
           </div>
+        </div>
+
+        <div className="mb-6">
+          <BookingPoseSuggestionsPanel booking={booking} userId={user?.id} canGenerate />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

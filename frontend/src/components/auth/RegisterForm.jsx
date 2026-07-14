@@ -1,5 +1,5 @@
 import { useForm } from "react-hook-form";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import PasswordInput from "../ui/PasswordInput";
 import Swal from "sweetalert2";
@@ -24,11 +24,19 @@ function authErrorMessage(err) {
   return message;
 }
 
+function safeInternalPath(value) {
+  if (!value || typeof value !== "string") return null;
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
 function RegisterForm() {
   const { register, handleSubmit, watch, formState: { errors } } = useForm();
   const { signUp } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
+  const redirectParam = safeInternalPath(searchParams.get("redirect"));
 
   const onSubmit = async (data) => {
     setLoading(true);
@@ -39,13 +47,17 @@ function RegisterForm() {
         title: "Account created!",
         text: "Check your email to confirm, then log in.",
       });
-      navigate("/login");
+      navigate(redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : "/login");
     } catch (err) {
       Swal.fire({ icon: "error", title: "Registration failed", text: authErrorMessage(err) });
     } finally {
       setLoading(false);
     }
   };
+
+  const loginLink = redirectParam
+    ? `/login?redirect=${encodeURIComponent(redirectParam)}`
+    : "/login";
 
   return (
     <div>
@@ -92,6 +104,23 @@ function RegisterForm() {
           {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword.message}</p>}
         </div>
 
+        <label className="flex items-start gap-3 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            className="mt-1 accent-[#A98B75]"
+            {...register("acceptTerms", {
+              required: "Please accept the Terms and Conditions",
+            })}
+          />
+          <span>
+            I agree to the{" "}
+            <Link to="/terms" target="_blank" className="text-[#A98B75] font-semibold hover:underline">
+              Terms and Conditions
+            </Link>
+          </span>
+        </label>
+        {errors.acceptTerms && <p className="text-red-500 text-xs -mt-3">{errors.acceptTerms.message}</p>}
+
         <button
           type="submit"
           disabled={loading}
@@ -103,7 +132,7 @@ function RegisterForm() {
 
       <p className="text-center text-gray-500 mt-6">
         Already have an account?{" "}
-        <Link to="/login" className="text-[#A98B75] font-semibold hover:underline">Login</Link>
+        <Link to={loginLink} className="text-[#A98B75] font-semibold hover:underline">Login</Link>
       </p>
     </div>
   );

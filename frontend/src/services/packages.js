@@ -40,6 +40,7 @@ export async function syncPackagesFromCatalog() {
   const byName = Object.fromEntries(existing.map((p) => [p.name, p]));
 
   for (const pkg of PACKAGES_CATALOG) {
+    const existingPkg = byName[pkg.name];
     const row = {
       name: pkg.name,
       price: pkg.price,
@@ -50,8 +51,9 @@ export async function syncPackagesFromCatalog() {
       is_popular: pkg.is_popular,
     };
 
-    if (byName[pkg.name]) {
-      await updatePackage(byName[pkg.name].id, row);
+    if (existingPkg) {
+      // Keep any admin-uploaded package images when syncing catalog text fields.
+      await updatePackage(existingPkg.id, row);
     } else {
       await createPackage(row);
     }

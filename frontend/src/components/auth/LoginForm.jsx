@@ -1,20 +1,29 @@
 import { useForm } from "react-hook-form";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import PasswordInput from "../ui/PasswordInput";
 import Swal from "sweetalert2";
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 
+function safeInternalPath(value) {
+  if (!value || typeof value !== "string") return null;
+  if (!value.startsWith("/") || value.startsWith("//")) return null;
+  return value;
+}
+
 function LoginForm() {
   const { register, handleSubmit, formState: { errors } } = useForm();
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [exiting, setExiting] = useState(false);
   const from = location.state?.from?.pathname;
+  const fromSearch = location.state?.from?.search || "";
   const fromLogout = location.state?.fromLogout;
+  const redirectParam = safeInternalPath(searchParams.get("redirect"));
 
   const onSubmit = async (data) => {
     setLoading(true);
@@ -24,15 +33,26 @@ function LoginForm() {
       const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).single();
       setExiting(true);
       await new Promise((r) => setTimeout(r, 400));
-      if (from) navigate(from, { replace: true });
-      else if (prof?.role === "admin") navigate("/admin/dashboard", { replace: true });
-      else navigate("/client-dashboard", { replace: true });
+
+      if (redirectParam && prof?.role === "client") {
+        navigate(redirectParam, { replace: true });
+      } else if (from) {
+        navigate(`${from}${fromSearch}`, { replace: true });
+      } else if (prof?.role === "admin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/client-dashboard", { replace: true });
+      }
     } catch (err) {
       Swal.fire({ icon: "error", title: "Login failed", text: err.message });
     } finally {
       setLoading(false);
     }
   };
+
+  const registerLink = redirectParam
+    ? `/register?redirect=${encodeURIComponent(redirectParam)}`
+    : "/register";
 
   return (
     <div className={`${exiting ? "login-exit" : ""} ${fromLogout ? "page-transition-auth" : ""}`}>
@@ -73,7 +93,7 @@ function LoginForm() {
 
       <p className="text-center text-gray-500 mt-6 text-sm">
         Don&apos;t have an account?{" "}
-        <Link to="/register" className="text-[#A98B75] font-semibold hover:underline">Register</Link>
+        <Link to={registerLink} className="text-[#A98B75] font-semibold hover:underline">Register</Link>
       </p>
     </div>
   );

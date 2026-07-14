@@ -9,6 +9,7 @@ import Register from "./pages/authpage/Register";
 import ForgotPass from "./pages/authpage/ForgotPass";
 import ResetPassword from "./pages/authpage/ResetPassword";
 import ClientPortfolio from "./pages/public/ClientPortfolio";
+import Terms from "./pages/public/Terms";
 import VerifyBooking from "./pages/public/VerifyBooking";
 import NotFound from "./pages/public/NotFound";
 
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPass />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/client-portfolio" element={<ClientPortfolio />} />
+        <Route path="/terms" element={<Terms />} />
         <Route path="/verify/:token" element={<VerifyBooking />} />
 
         {/* Client portal */}

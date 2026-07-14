@@ -12,6 +12,7 @@ import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../l
 import { CANCELLATION_FEE } from "../../lib/constants";
 import { FaDownload, FaQrcode } from "react-icons/fa";
 import QRCode from "qrcode";
+import BookingPoseSuggestionsPanel from "../../components/booking/BookingPoseSuggestionsPanel";
 
 export default function BookingDetail() {
   const { id } = useParams();
@@ -251,6 +252,10 @@ export default function BookingDetail() {
                 Theme Generator
               </Link>
             </div>
+          )}
+
+          {["confirmed", "completed", "payment_submitted"].includes(booking.status) && (
+            <BookingPoseSuggestionsPanel booking={booking} canGenerate={false} />
           )}
 
           {!["cancelled", "completed", "cancellation_pending", "cancellation_submitted"].includes(booking.status) && (

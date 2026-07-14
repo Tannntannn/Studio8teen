@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import PortfolioNavbar from "../../components/portfolio/PortfolioNavbar";
+import ImageLightbox from "../../components/ui/ImageLightbox";
 import { getPublicPortfolio } from "../../services/gallery";
 import { getGalleryUrl } from "../../lib/cloudinary";
 
 function ClientPortfolio() {
   const [portfolioItems, setPortfolioItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("All");
-  const categories = ["All", "Wedding", "Birthday", "Studio", "Corporate"];
+  const [lightboxIndex, setLightboxIndex] = useState(null);
+  const categories = ["All", "Wedding", "Birthday", "Casual", "Corporate"];
 
   useEffect(() => {
     getPublicPortfolio().then(setPortfolioItems).catch(() => setPortfolioItems([]));
@@ -30,7 +32,7 @@ function ClientPortfolio() {
               Our Photography Collection
             </h1>
             <p className="max-w-2xl mx-auto mt-5 text-gray-500 leading-relaxed">
-              Explore our collection of weddings, birthdays, studio portraits, and corporate events.
+              Explore our collection of weddings, birthdays, casual portraits, and corporate events.
             </p>
           </div>
         </section>
@@ -61,24 +63,38 @@ function ClientPortfolio() {
             </div>
           ) : (
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 mt-14">
-              {filteredItems.map((item) => (
-                <div key={item.id} className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all">
+              {filteredItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setLightboxIndex(index)}
+                  className="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A98B75]"
+                >
                   <img
                     src={getGalleryUrl(item.cloudinary_url, 500)}
-                    alt={item.title}
+                    alt={item.title || item.category}
                     loading="lazy"
                     className="w-full h-64 object-cover"
                   />
                   <div className="p-5">
                     <span className="inline-block px-3 py-1 rounded-full bg-[#A98B75]/10 text-[#A98B75] text-sm">{item.category}</span>
-                    <h3 className="mt-3 text-xl font-semibold text-gray-800">{item.title}</h3>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </div>
       </section>
+
+      {lightboxIndex != null && (
+        <ImageLightbox
+          images={filteredItems}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+          meta={filteredItems[lightboxIndex]?.category}
+        />
+      )}
     </>
   );
 }

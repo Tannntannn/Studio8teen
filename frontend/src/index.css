@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+/* ===== Brand tokens (Aesthetic studio theme) ===== */
+:root {
+  --brand-accent: #A98B75;
+  --brand-accent-hover: #8a7260;
+  --brand-ink: #5B4636;
+  --brand-ink-deep: #4a3829;
+  --brand-cream: #F8F6F3;
+  --brand-border: #E8E1DA;
+  --brand-soft: #E8D5C4;
+  --brand-surface: #ffffff;
+  --brand-muted: #6b5a4d;
+  --page-glow: radial-gradient(ellipse at top, rgba(169, 139, 117, 0.14), transparent 55%),
+    radial-gradient(ellipse at bottom right, rgba(91, 70, 54, 0.08), transparent 45%);
+}
+
 /* ===== Base Reset ===== */
 *,
 *::before,
@@ -12,15 +27,31 @@ html {
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   min-width: 0;
+  color: var(--brand-ink);
+  background-color: var(--brand-cream);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* ===== Typography ===== */
 .heading-serif {
-  font-family: 'Playfair Display', 'Georgia', serif;
+  font-family: 'Cormorant Garamond', 'Georgia', serif;
+  letter-spacing: -0.01em;
+}
+
+/* Soft atmospheric page shell used by public / auth / dashboards */
+.app-shell {
+  background-color: var(--brand-cream);
+  background-image: var(--page-glow);
+}
+
+.surface-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--brand-border);
+  box-shadow: 0 10px 30px rgba(91, 70, 54, 0.05);
+  backdrop-filter: blur(8px);
 }
 
 /* ===== Keyframe Animations ===== */

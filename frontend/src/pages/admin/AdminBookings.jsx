@@ -13,6 +13,7 @@ export default function AdminBookings() {
   const [error, setError] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const load = () => {
     setLoading(true);
@@ -26,6 +27,12 @@ export default function AdminBookings() {
   useEffect(() => {
     load();
   }, []);
+
+  const filtered = bookings.filter((b) => {
+    if (typeFilter === "walk_in") return b.is_walk_in;
+    if (typeFilter === "scheduled") return !b.is_walk_in;
+    return true;
+  });
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -45,7 +52,26 @@ export default function AdminBookings() {
     <AdminLayout>
       <div>
         <h1 className="heading-serif text-4xl font-bold text-[#5B4636] mb-2">Bookings</h1>
-        <p className="text-gray-500 mb-8">Manage all client booking requests.</p>
+        <p className="text-gray-500 mb-6">Manage all client booking requests.</p>
+
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            ["all", "All"],
+            ["scheduled", "Scheduled"],
+            ["walk_in", "Walk-in"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTypeFilter(key)}
+              className={`text-xs px-3 py-1.5 rounded-lg ${
+                typeFilter === key ? "bg-[#5B4636] text-white" : "bg-white border border-[#E8E1DA]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         {profile?.role !== "admin" && (
           <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
@@ -62,14 +88,14 @@ export default function AdminBookings() {
 
         {loading ? (
           <p className="text-gray-400">Loading bookings...</p>
-        ) : bookings.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-12 text-center">
             <h2 className="text-xl font-semibold text-[#5B4636]">No bookings yet</h2>
             <p className="text-gray-500 mt-2">Bookings will appear here when clients create them.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {bookings.map((b) => (
+            {filtered.map((b) => (
               <div
                 key={b.id}
                 className="bg-white rounded-xl border border-[#E8E1DA] p-4 hover:shadow-sm flex items-start justify-between gap-4"
@@ -77,6 +103,11 @@ export default function AdminBookings() {
                 <Link to={`/admin/bookings/${b.id}`} className="flex-1 min-w-0">
                   <p className="font-medium text-[#5B4636]">
                     {b.profiles?.full_name || "Unknown client"} — {b.packages?.name || "Package"}
+                    {b.is_walk_in && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
+                        Walk-in
+                      </span>
+                    )}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
                     {b.event_date} at {b.time_slot} · {b.location || "Studio"}

@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { FaCheck } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import BookingDatePicker from "../../components/booking/BookingDatePicker";
 import BookingTimeSlotPicker from "../../components/booking/BookingTimeSlotPicker";
 import { getPackages } from "../../services/packages";
 import { createBooking } from "../../services/bookings";
 import {
-  getAvailability,
   ensureMonthAvailability,
   getTimeSlots,
   subscribeAvailability,
@@ -15,20 +15,35 @@ import {
   syncMonthAvailability,
   isSlotBookable,
 } from "../../services/settings";
-import { groupAvailabilityByDate } from "../../lib/availabilityUtils";
+import { getDayStatus, groupAvailabilityByDate } from "../../lib/availabilityUtils";
 import { useAuth } from "../../context/AuthContext";
 import { ADDONS_CATALOG } from "../../data/packagesCatalog";
+import { getThumbnailUrl } from "../../lib/cloudinary";
 import Swal from "sweetalert2";
+
+function formatLongDate(iso) {
+  if (!iso) return "";
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 export default function CreateBooking() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const packageFromUrl = searchParams.get("package");
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
       contact_number: profile?.phone || "",
       client_address: profile?.address || "",
       event_date: "",
       time_slot: "",
+      package_id: packageFromUrl || "",
+      booking_mode: "scheduled",
     },
   });
   const [packages, setPackages] = useState([]);
@@ -44,22 +59,50 @@ export default function CreateBooking() {
   const selectedDate = watch("event_date");
   const selectedTimeSlot = watch("time_slot");
   const selectedPackageId = watch("package_id");
+  const bookingMode = watch("booking_mode");
 
   const selectedPackage = packages.find((p) => p.id === selectedPackageId);
+  const allowsWalkIn = Boolean(selectedPackage?.allows_walk_in);
+  const todayIso = useMemo(() => new Date().toISOString().split("T")[0], []);
+
   const basePrice = Number(selectedPackage?.price || 0);
   const addonsTotal = selectedAddons.reduce((sum, id) => {
     const addon = ADDONS_CATALOG.find((a) => a.name === id);
     return sum + (addon?.price || 0);
   }, 0);
   const grandTotal = basePrice + addonsTotal;
+  const inclusions = Array.isArray(selectedPackage?.features) ? selectedPackage.features : [];
 
   const availabilityByDate = groupAvailabilityByDate(monthAvailability);
   const slotsForSelectedDate = selectedDate ? monthAvailability.filter((s) => s.avail_date === selectedDate) : [];
+  const dayStatus = selectedDate
+    ? getDayStatus(availabilityByDate[selectedDate] || [])
+    : null;
 
   useEffect(() => {
-    getPackages().then(setPackages).catch(console.error);
+    getPackages()
+      .then((data) => {
+        setPackages(data);
+        if (packageFromUrl && data.some((p) => p.id === packageFromUrl)) {
+          setValue("package_id", packageFromUrl, { shouldValidate: true });
+        }
+      })
+      .catch(console.error);
     getTimeSlots().then(setTimeSlotTimes).catch(() => {});
-  }, []);
+  }, [packageFromUrl, setValue]);
+
+  useEffect(() => {
+    if (bookingMode === "walk_in") {
+      setBookingMonth(todayIso.slice(0, 7));
+      setValue("event_date", todayIso, { shouldValidate: true });
+    }
+  }, [bookingMode, todayIso, setValue]);
+
+  useEffect(() => {
+    if (!allowsWalkIn && bookingMode === "walk_in") {
+      setValue("booking_mode", "scheduled");
+    }
+  }, [allowsWalkIn, bookingMode, setValue]);
 
   useEffect(() => {
     const loadMonth = async () => {
@@ -86,6 +129,14 @@ export default function CreateBooking() {
   }, [selectedDate, setValue]);
 
   const handleSelectDate = (date) => {
+    if (bookingMode === "walk_in" && date !== todayIso) {
+      Swal.fire({
+        icon: "info",
+        title: "Walk-in is same-day only",
+        text: "Please choose today’s date, or switch to a scheduled booking.",
+      });
+      return;
+    }
     setValue("event_date", date, { shouldValidate: true });
     if (date.slice(0, 7) !== bookingMonth) setBookingMonth(date.slice(0, 7));
   };
@@ -100,6 +151,10 @@ export default function CreateBooking() {
     if (!user) return;
     if (!data.event_date || !data.time_slot) {
       Swal.fire({ icon: "warning", title: "Select date and time", text: "Pick an open date and available time slot." });
+      return;
+    }
+    if (data.booking_mode === "walk_in" && data.event_date !== todayIso) {
+      Swal.fire({ icon: "warning", title: "Walk-in must be today", text: "Same-day slots only for walk-in bookings." });
       return;
     }
 
@@ -126,6 +181,7 @@ export default function CreateBooking() {
         client_address: data.client_address,
         selected_addons: addonRows,
         addons_total: addonsTotal,
+        is_walk_in: data.booking_mode === "walk_in",
       });
       navigate(`/client-bookings/${booking.id}`);
     } catch (err) {
@@ -140,60 +196,166 @@ export default function CreateBooking() {
 
   return (
     <ClientLayout>
-      <div className="max-w-3xl mx-auto w-full">
+      <div className="max-w-6xl mx-auto w-full">
         <div className="mb-8 text-center">
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Book a Session</h1>
-          <p className="mt-2 text-gray-500">Choose a package, add-ons, and an available date & time.</p>
+          <p className="mt-2 text-gray-500">Choose a package, pick an available date & time, then confirm your details.</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-5">
-            <h2 className="font-semibold text-[#5B4636]">Session details</h2>
-
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-5 shadow-sm">
+            <h2 className="font-semibold text-[#5B4636] text-lg">1. Package</h2>
             <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Package</label>
+              <label className="block mb-2 text-sm font-medium text-gray-700">Select package</label>
               <select
                 {...register("package_id", { required: "Select a package" })}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:border-[#A98B75] outline-none"
               >
                 <option value="">Select Package</option>
                 {packages.map((pkg) => (
-                  <option key={pkg.id} value={pkg.id}>{pkg.name} — ₱{Number(pkg.price).toLocaleString()}</option>
+                  <option key={pkg.id} value={pkg.id}>
+                    {pkg.name} — ₱{Number(pkg.price).toLocaleString()}
+                    {pkg.allows_walk_in ? " · Walk-in OK" : ""}
+                  </option>
                 ))}
               </select>
               {errors.package_id && <p className="text-red-500 text-xs mt-1">{errors.package_id.message}</p>}
             </div>
 
-            <input type="hidden" {...register("event_date", { required: "Select a date" })} />
-            <input type="hidden" {...register("time_slot", { required: "Select a time slot" })} />
+            {selectedPackage && (
+              <div className="grid md:grid-cols-2 gap-4">
+                {selectedPackage.image_url ? (
+                  <div className="rounded-xl overflow-hidden border border-[#E8E1DA] aspect-[16/10]">
+                    <img
+                      src={getThumbnailUrl(selectedPackage.image_url, 640, 400)}
+                      alt={selectedPackage.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-[#E8E1DA] bg-[#F8F6F3] aspect-[16/10] flex items-center justify-center text-sm text-gray-400">
+                    No package image
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-semibold text-[#5B4636] mb-2">Inclusions</p>
+                  {inclusions.length ? (
+                    <ul className="space-y-2">
+                      {inclusions.map((item) => (
+                        <li key={item} className="flex items-start gap-2 text-sm text-gray-600">
+                          <span className="mt-0.5 w-4 h-4 rounded-full bg-[#A98B75]/15 text-[#A98B75] flex items-center justify-center flex-shrink-0">
+                            <FaCheck className="text-[8px]" />
+                          </span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-400">No inclusions listed yet.</p>
+                  )}
+                  {allowsWalkIn && (
+                    <p className="mt-3 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">
+                      This package accepts same-day walk-ins.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
-            <BookingDatePicker
-              month={bookingMonth}
-              onMonthChange={setBookingMonth}
-              availabilityByDate={availabilityByDate}
-              selectedDate={selectedDate}
-              onSelectDate={handleSelectDate}
-            />
-            {errors.event_date && <p className="text-red-500 text-xs">{errors.event_date.message}</p>}
+            {allowsWalkIn && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Booking type</p>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {[
+                    { value: "scheduled", label: "Scheduled", hint: "Pick any open future date" },
+                    { value: "walk_in", label: "Walk-in", hint: "Same-day session only" },
+                  ].map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`rounded-xl border px-4 py-3 cursor-pointer transition ${
+                        bookingMode === opt.value
+                          ? "border-[#A98B75] bg-[#A98B75]/10"
+                          : "border-[#E8E1DA] hover:bg-[#F8F6F3]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        value={opt.value}
+                        {...register("booking_mode")}
+                        className="sr-only"
+                      />
+                      <span className="block text-sm font-semibold text-[#5B4636]">{opt.label}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{opt.hint}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
-            <BookingTimeSlotPicker
-              slots={slotsForSelectedDate}
-              allSlotTimes={timeSlotTimes}
-              selectedSlot={selectedTimeSlot}
-              onSelect={(t) => setValue("time_slot", t, { shouldValidate: true })}
-              disabled={!selectedDate}
-            />
-            {errors.time_slot && <p className="text-red-500 text-xs">{errors.time_slot.message}</p>}
+          {/* DentaBase-style calendar + details panel */}
+          <div>
+            <h2 className="font-semibold text-[#5B4636] text-lg mb-3">2. Schedule</h2>
+            <div className="grid lg:grid-cols-2 gap-5">
+              <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 md:p-6 shadow-sm">
+                <input type="hidden" {...register("event_date", { required: "Select a date" })} />
+                <BookingDatePicker
+                  month={bookingMonth}
+                  onMonthChange={setBookingMonth}
+                  availabilityByDate={availabilityByDate}
+                  selectedDate={selectedDate}
+                  onSelectDate={handleSelectDate}
+                  minDate={bookingMode === "walk_in" ? todayIso : null}
+                  maxDate={bookingMode === "walk_in" ? todayIso : null}
+                />
+                {errors.event_date && <p className="text-red-500 text-xs mt-2">{errors.event_date.message}</p>}
+              </div>
 
+              <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 md:p-6 shadow-sm flex flex-col">
+                <h3 className="heading-serif text-2xl font-bold text-[#5B4636] mb-1">
+                  {selectedDate ? "Session on this date" : "Pick a date"}
+                </h3>
+                {!selectedDate ? (
+                  <p className="text-sm text-gray-400 mt-2 flex-1">
+                    Available dates appear in blue. Fully booked dates appear in red. Select a date to view open time slots here.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-500 mb-1">{formatLongDate(selectedDate)}</p>
+                    <p className="text-xs mb-4">
+                      {dayStatus === "full" && <span className="text-red-600 font-medium">Fully booked</span>}
+                      {dayStatus === "partial" && <span className="text-sky-700 font-medium">Limited slots available</span>}
+                      {dayStatus === "available" && <span className="text-sky-700 font-medium">Open for booking</span>}
+                      {dayStatus === "closed" && <span className="text-gray-500 font-medium">Closed</span>}
+                      {bookingMode === "walk_in" && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
+                          Walk-in
+                        </span>
+                      )}
+                    </p>
+                    <input type="hidden" {...register("time_slot", { required: "Select a time slot" })} />
+                    <BookingTimeSlotPicker
+                      slots={slotsForSelectedDate}
+                      allSlotTimes={timeSlotTimes}
+                      selectedSlot={selectedTimeSlot}
+                      onSelect={(t) => setValue("time_slot", t, { shouldValidate: true })}
+                      disabled={!selectedDate}
+                    />
+                    {errors.time_slot && <p className="text-red-500 text-xs mt-2">{errors.time_slot.message}</p>}
+                    <p className="text-xs text-gray-400 mt-4">Typical session length depends on your package inclusions.</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-4 shadow-sm">
+            <h2 className="font-semibold text-[#5B4636] text-lg">3. Your details</h2>
             <div>
               <label className="block mb-2 text-sm font-medium text-gray-700">Event Location</label>
               <input {...register("location", { required: "Enter location" })} placeholder="Studio or outdoor location" className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]" />
               {errors.location && <p className="text-red-500 text-xs mt-1">{errors.location.message}</p>}
             </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-4">
-            <h2 className="font-semibold text-[#5B4636]">Your contact information</h2>
             <div>
               <label className="block mb-2 text-sm font-medium text-gray-700">Contact Number</label>
               <input
@@ -218,13 +380,20 @@ export default function CreateBooking() {
               {errors.client_address && <p className="text-red-500 text-xs mt-1">{errors.client_address.message}</p>}
             </div>
             <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Additional Notes</label>
-              <textarea rows={3} {...register("notes")} placeholder="Tell us about your event..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
+              <label className="block mb-2 text-sm font-medium text-gray-700">Session notes / preferences</label>
+              <textarea rows={3} {...register("notes")} placeholder="Tell us about your vibe, outfit ideas, or special requests..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
             </div>
+            <p className="text-xs text-gray-500">
+              By submitting a booking you agree to our{" "}
+              <a href="/terms" target="_blank" rel="noreferrer" className="text-[#A98B75] font-medium hover:underline">
+                Terms and Conditions
+              </a>
+              .
+            </p>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
-            <h2 className="font-semibold text-[#5B4636] mb-4">Add-ons (optional)</h2>
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 shadow-sm">
+            <h2 className="font-semibold text-[#5B4636] mb-4">4. Add-ons (optional)</h2>
             <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
               {ADDONS_CATALOG.slice(0, 12).map((addon) => (
                 <label
@@ -248,13 +417,25 @@ export default function CreateBooking() {
             </div>
           </div>
 
-          <div className="bg-[#5B4636] text-white rounded-2xl p-6">
+          <div className="bg-[#5B4636] text-white rounded-2xl p-6 shadow-sm">
             <h2 className="font-semibold mb-4">Booking summary</h2>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between opacity-90">
                 <span>Base service{selectedPackage ? `: ${selectedPackage.name}` : ""}</span>
                 <span>₱{basePrice.toLocaleString()}</span>
               </div>
+              {bookingMode === "walk_in" && (
+                <div className="flex justify-between opacity-80">
+                  <span>Booking type</span>
+                  <span>Walk-in (same day)</span>
+                </div>
+              )}
+              {selectedDate && (
+                <div className="flex justify-between opacity-80">
+                  <span>Date</span>
+                  <span>{selectedDate}{selectedTimeSlot ? ` · ${selectedTimeSlot}` : ""}</span>
+                </div>
+              )}
               {selectedAddons.map((name) => {
                 const a = ADDONS_CATALOG.find((x) => x.name === name);
                 return (
@@ -274,9 +455,9 @@ export default function CreateBooking() {
           <button
             type="submit"
             disabled={loading || !selectedDate || !selectedTimeSlot}
-            className="w-full py-3.5 rounded-xl bg-[#A98B75] text-white font-medium hover:bg-[#8a7260] transition disabled:opacity-50"
+            className="w-full py-3.5 rounded-full bg-[#A98B75] text-white font-semibold hover:bg-[#8a7260] transition disabled:opacity-50 shadow-lg shadow-[#A98B75]/20"
           >
-            {loading ? "Submitting..." : "Submit Booking Request"}
+            {loading ? "Submitting..." : bookingMode === "walk_in" ? "Book Walk-In Session" : "Book Appointment"}
           </button>
         </form>
       </div>

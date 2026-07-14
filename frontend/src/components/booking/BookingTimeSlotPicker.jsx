@@ -1,11 +1,11 @@
 import { getSlotStatus } from "../../lib/availabilityUtils";
 
 const SLOT_STYLES = {
-  available: "bg-green-50 border-green-300 text-green-800 hover:bg-green-100",
-  partial: "bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100",
-  full: "bg-red-50 border-red-200 text-red-400 cursor-not-allowed opacity-70",
+  available: "bg-sky-50 border-sky-300 text-sky-800 hover:bg-sky-100",
+  partial: "bg-sky-100 border-sky-400 text-sky-900 hover:bg-sky-200",
+  full: "bg-red-50 border-red-300 text-red-400 cursor-not-allowed opacity-70",
   closed: "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60",
-  selected: "ring-2 ring-[#A98B75] bg-[#A98B75]/15 border-[#A98B75]",
+  selected: "ring-2 ring-[#A98B75] bg-[#A98B75]/15 border-[#A98B75] text-[#5B4636]",
 };
 
 export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlot, onSelect, disabled }) {
@@ -20,7 +20,11 @@ export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlo
   });
 
   if (disabled) {
-    return <p className="text-sm text-gray-400">Pick an open date first.</p>;
+    return (
+      <div className="rounded-xl border border-dashed border-[#E8E1DA] bg-[#F8F6F3]/80 px-4 py-8 text-center text-sm text-gray-400">
+        Select an available date on the calendar to see open time slots.
+      </div>
+    );
   }
 
   if (!items.length) {
@@ -29,8 +33,8 @@ export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlo
 
   return (
     <div>
-      <label className="block mb-2 text-sm font-medium text-gray-700">Time slot</label>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      <label className="block mb-3 text-sm font-semibold text-[#5B4636]">Available time slots</label>
+      <div className="grid grid-cols-2 gap-2">
         {items.map(({ time, status, selectable, left }) => {
           const isSelected = selectedSlot === time;
           return (
@@ -43,14 +47,16 @@ export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlo
             >
               <span className="block">{time}</span>
               <span className="block text-[10px] mt-0.5 font-normal">
-                {status === "full" ? "Full" : status === "closed" ? "Closed" : status === "partial" ? `${left} left` : "Open"}
+                {status === "full" ? "Fully booked" : status === "closed" ? "Closed" : status === "partial" ? `${left} left` : "Open"}
               </span>
             </button>
           );
         })}
       </div>
       {items.every((i) => !i.selectable) && (
-        <p className="text-xs text-red-600 mt-2">All time slots are full or closed on this date. Please pick another day.</p>
+        <p className="text-xs text-red-600 mt-3">
+          All time slots are full or closed on this date. Please pick another day.
+        </p>
       )}
     </div>
   );

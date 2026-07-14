@@ -1,54 +1,92 @@
 import { getDayStatus } from "../../lib/availabilityUtils";
 
+/** DentaBase-inspired palette fitted to Studio 8Teen branding */
 const DAY_STYLES = {
-  available: "bg-green-50 border-green-300 text-green-800 hover:bg-green-100 cursor-pointer",
-  partial: "bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100 cursor-pointer",
-  full: "bg-red-50 border-red-200 text-red-400 cursor-not-allowed opacity-70",
+  available: "bg-sky-50 border-sky-300 text-sky-800 hover:bg-sky-100 cursor-pointer",
+  partial: "bg-sky-100 border-sky-400 text-sky-900 hover:bg-sky-150 cursor-pointer",
+  full: "bg-red-50 border-red-300 text-red-500 cursor-not-allowed opacity-80",
   closed: "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60",
   past: "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed",
-  selected: "ring-2 ring-[#A98B75] ring-offset-1",
+  selected: "ring-2 ring-[#A98B75] ring-offset-1 bg-[#A98B75]/15 border-[#A98B75] text-[#5B4636]",
 };
 
-export default function BookingDatePicker({ month, onMonthChange, availabilityByDate, selectedDate, onSelectDate }) {
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+export default function BookingDatePicker({
+  month,
+  onMonthChange,
+  availabilityByDate,
+  selectedDate,
+  onSelectDate,
+  minDate = null,
+  maxDate = null,
+}) {
   const [y, m] = month.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const firstDow = new Date(y, m - 1, 1).getDay();
   const today = new Date().toISOString().split("T")[0];
+  const earliest = minDate || today;
 
   const cells = [];
   for (let i = 0; i < firstDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
+  const shiftMonth = (delta) => {
+    const date = new Date(y, m - 1 + delta, 1);
+    const next = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const minMonth = earliest.slice(0, 7);
+    if (next < minMonth) return;
+    if (maxDate && next > maxDate.slice(0, 7)) return;
+    onMonthChange(next);
+  };
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <label className="text-sm font-medium text-gray-700">Preferred date</label>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => onMonthChange(e.target.value)}
-          min={today.slice(0, 7)}
-          className="border border-gray-200 rounded-lg px-2 py-1 text-xs"
-        />
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between mb-4">
+        <button
+          type="button"
+          onClick={() => shiftMonth(-1)}
+          className="w-9 h-9 rounded-full border border-[#E8E1DA] text-[#A98B75] hover:bg-[#A98B75]/10 transition"
+          aria-label="Previous month"
+        >
+          ‹
+        </button>
+        <h3 className="heading-serif text-2xl font-bold text-[#A98B75]">
+          {MONTH_NAMES[m - 1]} {y}
+        </h3>
+        <button
+          type="button"
+          onClick={() => shiftMonth(1)}
+          className="w-9 h-9 rounded-full border border-[#E8E1DA] text-[#A98B75] hover:bg-[#A98B75]/10 transition"
+          aria-label="Next month"
+        >
+          ›
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-2 text-[10px] text-gray-500">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-green-200 border border-green-400" /> Open</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-200 border border-amber-400" /> Partial</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-red-100 border border-red-300" /> Full</span>
-      </div>
-
-      <div className="grid grid-cols-7 gap-1.5">
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
-          <div key={d} className="text-center text-[10px] font-medium text-gray-400 py-1">{d}</div>
+      <div className="grid grid-cols-7 rounded-t-xl overflow-hidden mb-1">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+          <div
+            key={d}
+            className="text-center text-[11px] font-semibold text-white py-2 bg-[#A98B75]"
+          >
+            {d}
+          </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1.5 flex-1 content-start">
         {cells.map((day, idx) => {
-          if (!day) return <div key={`e-${idx}`} />;
+          if (!day) return <div key={`e-${idx}`} className="aspect-square" />;
           const date = `${month}-${String(day).padStart(2, "0")}`;
-          const isPast = date < today;
+          const isPast = date < earliest;
+          const isBeyondMax = maxDate ? date > maxDate : false;
           const slots = availabilityByDate[date] || [];
-          const status = isPast ? "past" : slots.length ? getDayStatus(slots) : "available";
-          const selectable = !isPast && (status === "available" || status === "partial");
+          let status = isPast || isBeyondMax ? "past" : slots.length ? getDayStatus(slots) : "available";
+          const selectable = !isPast && !isBeyondMax && (status === "available" || status === "partial");
           const isSelected = selectedDate === date;
 
           return (
@@ -57,14 +95,34 @@ export default function BookingDatePicker({ month, onMonthChange, availabilityBy
               type="button"
               disabled={!selectable}
               onClick={() => selectable && onSelectDate(date)}
-              className={`aspect-square rounded-lg border text-xs font-medium transition flex flex-col items-center justify-center ${DAY_STYLES[status]} ${isSelected ? DAY_STYLES.selected : ""}`}
-              title={status === "full" ? "Fully booked" : status === "closed" ? "Closed" : date}
+              className={`aspect-square rounded-xl border text-sm font-semibold transition flex flex-col items-center justify-center ${DAY_STYLES[status]} ${isSelected ? DAY_STYLES.selected : ""}`}
+              title={
+                status === "full"
+                  ? "Fully booked"
+                  : status === "closed"
+                    ? "Closed"
+                    : status === "partial"
+                      ? "Limited slots"
+                      : date
+              }
             >
               <span>{day}</span>
-              {status === "full" && <span className="text-[8px] leading-none mt-0.5">Full</span>}
+              {status === "full" && <span className="text-[8px] leading-none mt-0.5 font-medium">Full</span>}
+              {status === "partial" && !isSelected && (
+                <span className="text-[8px] leading-none mt-0.5 font-medium">Ltd</span>
+              )}
             </button>
           );
         })}
+      </div>
+
+      <div className="flex flex-wrap gap-4 mt-4 pt-3 border-t border-[#E8E1DA] text-xs text-gray-600">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Available date
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Fully booked
+        </span>
       </div>
     </div>
   );
