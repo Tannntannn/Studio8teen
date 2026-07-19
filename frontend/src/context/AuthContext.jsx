@@ -37,13 +37,15 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id);
-        // Soft prompt on page load (may be blocked without gesture); real ask on SIGNED_IN
-        void initOneSignal(session.user.id, { forcePrompt: false });
+        // Soft init only — Allow popup is shown on client pages
+        void initOneSignal(session.user.id);
       }
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user && !isEmailConfirmed(session.user)) {
         await supabase.auth.signOut();
         setUser(null);
@@ -52,13 +54,10 @@ export function AuthProvider({ children }) {
       }
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id).then((p) => {
-          if (event === "SIGNED_IN") {
-            void initOneSignal(session.user.id, { forcePrompt: p?.role !== "admin" });
-          } else if (event === "INITIAL_SESSION" || event === "USER_UPDATED") {
-            void initOneSignal(session.user.id, { forcePrompt: false });
-          }
-        });
+        fetchProfile(session.user.id);
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+          void initOneSignal(session.user.id);
+        }
       } else {
         setProfile(null);
         if (event === "SIGNED_OUT") void logoutOneSignal();
@@ -90,16 +89,8 @@ export function AuthProvider({ children }) {
       throw new Error("Please confirm your email before logging in.");
     }
     if (data.user) {
-      const p = await fetchProfile(data.user.id);
-      try {
-        if (typeof sessionStorage !== "undefined") {
-          sessionStorage.removeItem("studiobook_push_prompted");
-        }
-      } catch {
-        /* ignore */
-      }
-      // Clients: show Allow notifications popup on login (desktop + phone)
-      void initOneSignal(data.user.id, { forcePrompt: p?.role !== "admin" });
+      await fetchProfile(data.user.id);
+      void initOneSignal(data.user.id);
     }
     return data;
   };

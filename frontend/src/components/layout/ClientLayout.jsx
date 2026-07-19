@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import ClientSidebar from "../client/ClientSidebar";
 import { useAuth } from "../../context/AuthContext";
 import { subscribeToNotifications } from "../../services/notifications";
+import { promptPushIfNeeded } from "../../lib/onesignal";
 
 const ClientLayout = ({ children }) => {
   const { user } = useAuth();
@@ -24,7 +25,15 @@ const ClientLayout = ({ children }) => {
     };
   }, []);
 
-  // In-app popup whenever a new notification row is inserted (works even if OS push fails)
+  // After client lands on any client page: ask to Allow notifications if not subscribed
+  useEffect(() => {
+    if (!user?.id) return;
+    const timer = window.setTimeout(() => {
+      void promptPushIfNeeded(user.id);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user?.id) return;
     const sub = subscribeToNotifications(user.id, (payload) => {
