@@ -154,7 +154,7 @@ export default function AdminReports() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="bg-white rounded-xl border border-[#E8E1DA] p-4">
             <p className="text-sm text-gray-500">Verified revenue</p>
-            <p className="text-2xl font-bold text-[#5B4636]">₱{Number(revenue?.total_verified || 0).toLocaleString()}</p>
+            <p className="text-2xl font-bold text-[#5B4636]">₱{Number(revenue?.total_verified ?? revenue?.verified_total ?? 0).toLocaleString()}</p>
           </div>
           <div className="bg-white rounded-xl border border-[#E8E1DA] p-4">
             <p className="text-sm text-gray-500">Bookings (filter)</p>

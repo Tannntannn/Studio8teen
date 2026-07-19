@@ -19,7 +19,7 @@ export default function AdminDashboard() {
     { label: "Total Bookings", value: stats?.total ?? "—" },
     { label: "Confirmed", value: stats?.confirmed ?? "—" },
     { label: "Pending Payment", value: stats?.pending_payment ?? "—" },
-    { label: "Revenue (verified)", value: revenue ? `₱${Number(revenue.total_verified).toLocaleString()}` : "—" },
+    { label: "Revenue (verified)", value: revenue ? `₱${Number(revenue.total_verified ?? revenue.verified_total ?? 0).toLocaleString()}` : "—" },
   ];
 
   return (

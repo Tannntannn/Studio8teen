@@ -378,11 +378,12 @@ BEGIN
   RETURN (
     SELECT json_build_object(
       'total', (SELECT COUNT(*) FROM bookings),
-      'awaiting_payment', (SELECT COUNT(*) FROM bookings WHERE status = 'awaiting_payment'),
-      'payment_submitted', (SELECT COUNT(*) FROM bookings WHERE status = 'payment_submitted'),
       'confirmed', (SELECT COUNT(*) FROM bookings WHERE status = 'confirmed'),
+      'pending_payment', (SELECT COUNT(*) FROM bookings WHERE status IN ('awaiting_payment', 'payment_submitted')),
+      'cancelled', (SELECT COUNT(*) FROM bookings WHERE status = 'cancelled'),
       'completed', (SELECT COUNT(*) FROM bookings WHERE status = 'completed'),
-      'cancelled', (SELECT COUNT(*) FROM bookings WHERE status = 'cancelled')
+      'awaiting_payment', (SELECT COUNT(*) FROM bookings WHERE status = 'awaiting_payment'),
+      'payment_submitted', (SELECT COUNT(*) FROM bookings WHERE status = 'payment_submitted')
     )
   );
 END;
@@ -400,8 +401,8 @@ BEGIN
   END IF;
   RETURN (
     SELECT json_build_object(
-      'verified_total', COALESCE((SELECT SUM(amount) FROM payments WHERE status = 'verified'), 0),
-      'pending_total', COALESCE((SELECT SUM(amount) FROM payments WHERE status = 'submitted'), 0)
+      'total_verified', COALESCE((SELECT SUM(amount) FROM payments WHERE status = 'verified'), 0),
+      'pending', COALESCE((SELECT SUM(amount) FROM payments WHERE status = 'submitted'), 0)
     )
   );
 END;
