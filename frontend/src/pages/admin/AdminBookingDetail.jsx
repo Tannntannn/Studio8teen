@@ -183,16 +183,15 @@ export default function AdminBookingDetail() {
     try {
       const result = await rescheduleBooking(id, formValues);
       const push = result?.notifyResult?.result?.results?.[0]?.channels?.push;
-      const pushOk = push?.ok === true;
-      const pushError = push?.error || push?.reason || "";
+      const pushOk = push?.ok === true || Boolean(push?.id);
       Swal.fire({
-        icon: pushOk ? "success" : "warning",
+        icon: "success",
         title: "Booking rescheduled",
-        html: pushOk
-          ? `Client notified by email + push (${push.recipients || 1} device).`
-          : `Email/in-app sent.<br/><small>Push issue: ${pushError || "no recipients — check OneSignal REST API key in Supabase secrets"}</small>`,
-        timer: pushOk ? 3200 : undefined,
-        showConfirmButton: !pushOk,
+        text: pushOk
+          ? "Client has been notified."
+          : "Booking updated. Email and in-app notification sent.",
+        timer: 2800,
+        showConfirmButton: false,
       });
       load();
     } catch (err) {

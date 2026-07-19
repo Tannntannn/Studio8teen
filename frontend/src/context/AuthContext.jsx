@@ -37,7 +37,8 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id);
-        void initOneSignal(session.user.id);
+        // Soft prompt on page load (may be blocked without gesture); real ask on SIGNED_IN
+        void initOneSignal(session.user.id, { forcePrompt: false });
       }
       setLoading(false);
     });
@@ -52,9 +53,11 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id);
-        // Avoid hammering OneSignal on token refresh / every auth event
-        if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
-          void initOneSignal(session.user.id);
+        if (event === "SIGNED_IN") {
+          // Right after login click — browser allows the permission dialog
+          void initOneSignal(session.user.id, { forcePrompt: true });
+        } else if (event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+          void initOneSignal(session.user.id, { forcePrompt: false });
         }
       } else {
         setProfile(null);
@@ -88,7 +91,7 @@ export function AuthProvider({ children }) {
     }
     if (data.user) {
       await fetchProfile(data.user.id);
-      void initOneSignal(data.user.id);
+      void initOneSignal(data.user.id, { forcePrompt: true });
     }
     return data;
   };

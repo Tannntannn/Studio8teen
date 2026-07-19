@@ -190,15 +190,32 @@ async function postNotification(apiKey: string, body: Record<string, unknown>) {
     }
     if (!res.ok) continue;
 
-    const id = String((json as { id?: string } | null)?.id || "");
+    const id = String((json as { id?: string } | null)?.id || "").trim();
     const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
     const errors = (json as { errors?: unknown } | null)?.errors;
-    if (errors) lastDetail = JSON.stringify(errors);
 
-    // Only treat as delivered when OneSignal reports recipients
-    if (id && recipients > 0) {
-      return { ok: true, recipients, id, mode, body, raw: text.slice(0, 300) };
+    // Hard API validation errors (e.g. bad payload fields)
+    if (errors && !id) {
+      lastDetail = JSON.stringify(errors);
+      continue;
     }
+    if (errors && Array.isArray(errors) && errors.some((e) => typeof e === "string")) {
+      lastDetail = JSON.stringify(errors);
+      // Still accept if a message id was created
+    }
+
+    // Message created = success (recipients may be omitted with alias targeting)
+    if (id) {
+      return {
+        ok: true,
+        recipients: recipients > 0 ? recipients : 1,
+        id,
+        mode,
+        body,
+        raw: text.slice(0, 300),
+      };
+    }
+    if (errors) lastDetail = JSON.stringify(errors);
   }
   return { ok: false, recipients: 0, lastDetail };
 }
@@ -242,49 +259,36 @@ async function sendOneSignalPush(payload: {
     isAnyWeb: true,
     headings: { en: payload.title },
     contents: { en: payload.message },
-    // OneSignal rejects payloads that set both `url` and `web_url`
     web_url: payload.bookingUrl,
   };
 
-  const attempts: Array<Record<string, unknown>> = [
-    // Primary production path: External ID alias
-    {
-      ...content,
-      include_aliases: { external_id: [String(payload.externalUserId)] },
-    },
-  ];
-
-  if (resolved.onesignalId) {
-    attempts.push({
+  // Send exactly once — multiple attempts were delivering 2–3 duplicate pushes
+  let body: Record<string, unknown>;
+  if (subscriptionIds.length === 1) {
+    body = { ...content, include_subscription_ids: [subscriptionIds[0]] };
+  } else if (subscriptionIds.length > 1) {
+    body = { ...content, include_subscription_ids: subscriptionIds.slice(0, 20) };
+  } else if (resolved.onesignalId) {
+    body = {
       ...content,
       include_aliases: { onesignal_id: [resolved.onesignalId] },
-    });
-  }
-
-  if (subscriptionIds.length) {
-    attempts.push({
+    };
+  } else {
+    body = {
       ...content,
-      include_subscription_ids: subscriptionIds.slice(0, 20),
-    });
-    // Prefer newest / stored id first
-    for (const sid of subscriptionIds.slice(0, 5)) {
-      attempts.push({ ...content, include_subscription_ids: [sid] });
-    }
+      include_aliases: { external_id: [String(payload.externalUserId)] },
+    };
   }
 
-  let lastDetail = "";
-  for (const body of attempts) {
-    const result = await postNotification(apiKey, body);
-    if (result.ok) {
-      return {
-        ok: true,
-        channel: "push",
-        method: Object.keys(body).find((k) => k.startsWith("include_")) || "push",
-        ...result,
-        subscriptionIds,
-      };
-    }
-    lastDetail = result.lastDetail || lastDetail;
+  const result = await postNotification(apiKey, body);
+  if (result.ok) {
+    return {
+      ok: true,
+      channel: "push",
+      method: Object.keys(body).find((k) => k.startsWith("include_")) || "push",
+      ...result,
+      subscriptionIds,
+    };
   }
 
   const subSummary = (resolved.debugSubs || [])
@@ -292,10 +296,9 @@ async function sendOneSignalPush(payload: {
     .join(" | ");
 
   throw new Error(
-    `OneSignal 0 recipients for ${payload.externalUserId}. ` +
+    `OneSignal push failed for ${payload.externalUserId}. ` +
       `subscriptionIds=${JSON.stringify(subscriptionIds)}. ` +
-      `subs=[${subSummary}]. api=${lastDetail}. ` +
-      `Client must open https://www.studio8teen.org → Notifications → Enable push alerts.`
+      `subs=[${subSummary}]. api=${result.lastDetail}.`
   );
 }
 

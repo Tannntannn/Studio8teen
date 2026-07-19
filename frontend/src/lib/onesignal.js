@@ -1,6 +1,6 @@
 /**
  * Production OneSignal Web Push (v16).
- * Init once → opt-in → wait for subscription id → login(external_id) → persist.
+ * On login: ask permission once → opt-in → login(external_id) → save subscription.
  */
 import { supabase } from "./supabase";
 
@@ -10,6 +10,8 @@ const APP_ID =
 const IS_LOCALHOST =
   typeof window !== "undefined" &&
   /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+
+const PROMPT_SESSION_KEY = "studiobook_push_prompted";
 
 let initPromise = null;
 let OneSignalMod = null;
@@ -29,7 +31,6 @@ async function ensureInit() {
 
   const OneSignal = await getOneSignal();
 
-  // Clean up broken /onesignal/ SW registrations if a prior build registered HTML there
   if ("serviceWorker" in navigator) {
     try {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -53,12 +54,29 @@ async function ensureInit() {
   if (!initPromise) {
     initPromise = OneSignal.init({
       appId: APP_ID,
-      // Localhost only — never needed in production
       ...(IS_LOCALHOST ? { allowLocalhostAsSecureOrigin: true } : {}),
-      // Root worker is served as real JS on Vercel (subdirectory can hit SPA rewrite)
       serviceWorkerPath: "OneSignalSDKWorker.js",
       serviceWorkerParam: { scope: "/" },
       notifyButton: { enable: false },
+      // We prompt ourselves on login — disable dashboard auto prompts colliding
+      promptOptions: {
+        slidedown: {
+          prompts: [
+            {
+              type: "push",
+              autoPrompt: false,
+              text: {
+                actionMessage: "Allow booking updates on this device?",
+                acceptButton: "Allow",
+                cancelButton: "Not now",
+              },
+            },
+          ],
+        },
+      },
+      welcomeNotification: {
+        disable: true,
+      },
     }).catch((err) => {
       initPromise = null;
       throw err;
@@ -74,22 +92,8 @@ function bindListeners(OneSignal) {
   if (listenersBound) return;
   listenersBound = true;
 
-  try {
-    OneSignal.Notifications.addEventListener("foregroundWillDisplay", (event) => {
-      const n = event?.notification;
-      const title = n?.title || "Booking update";
-      const body = n?.body || "You have a new notification.";
-      try {
-        if (window.__studiobookPushToast) {
-          window.__studiobookPushToast({ title, body, url: n?.launchURL || n?.url });
-        }
-      } catch {
-        /* ignore */
-      }
-    });
-  } catch (err) {
-    console.warn("OneSignal foreground listener:", err?.message || err);
-  }
+  // OS notification is enough — don't also fire an in-page toast from the same push
+  // (in-app toast still comes from the notifications table realtime insert)
 
   try {
     OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
@@ -105,18 +109,60 @@ function bindListeners(OneSignal) {
   }
 }
 
-async function ensurePushPermission(OneSignal) {
+function nativePermission() {
+  return (
+    (typeof Notification !== "undefined" ? Notification.permission : "default") || "default"
+  );
+}
+
+/**
+ * Ask for push permission (desktop + mobile).
+ * Uses OneSignal slidedown then native prompt when still default.
+ */
+async function ensurePushPermission(OneSignal, { forcePrompt = false } = {}) {
   try {
-    const permission =
-      OneSignal.Notifications?.permissionNative ||
-      (typeof Notification !== "undefined" ? Notification.permission : "default");
+    const permission = nativePermission();
 
     if (permission === "denied") {
       console.warn("OneSignal: notifications blocked for this site.");
       return false;
     }
 
-    if (permission !== "granted") {
+    if (permission === "granted") {
+      if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
+        await OneSignal.User.PushSubscription.optIn();
+      }
+      return true;
+    }
+
+    // permission === "default" — ask once per browser session unless forced
+    const alreadyPrompted =
+      typeof sessionStorage !== "undefined" &&
+      sessionStorage.getItem(PROMPT_SESSION_KEY) === "1";
+
+    if (!forcePrompt && alreadyPrompted) {
+      return false;
+    }
+
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(PROMPT_SESSION_KEY, "1");
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Soft OneSignal prompt first (works well on mobile + desktop)
+    try {
+      if (typeof OneSignal.Slidedown?.promptPush === "function") {
+        await OneSignal.Slidedown.promptPush();
+      }
+    } catch {
+      /* continue to native */
+    }
+
+    // Native browser permission dialog
+    if (nativePermission() === "default") {
       if (typeof OneSignal.Notifications?.requestPermission === "function") {
         await OneSignal.Notifications.requestPermission();
       } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
@@ -124,17 +170,14 @@ async function ensurePushPermission(OneSignal) {
       }
     }
 
-    if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
-      await OneSignal.User.PushSubscription.optIn();
+    if (nativePermission() === "granted") {
+      if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
+        await OneSignal.User.PushSubscription.optIn();
+      }
+      return true;
     }
 
-    await new Promise((r) => setTimeout(r, 800));
-
-    return (
-      OneSignal.User?.PushSubscription?.optedIn === true ||
-      OneSignal.Notifications?.permissionNative === "granted" ||
-      (typeof Notification !== "undefined" && Notification.permission === "granted")
-    );
+    return false;
   } catch (err) {
     console.warn("OneSignal permission flow:", err?.message || err);
     return false;
@@ -147,7 +190,6 @@ async function waitForSubscription(OneSignal, attempts = 12) {
     const id = sub?.id || null;
     const token = sub?.token || null;
     const optedIn = sub?.optedIn === true;
-    // Token can lag behind id; id + optedIn is enough to send via REST
     if (id && optedIn) {
       return {
         id: String(id),
@@ -179,13 +221,15 @@ async function persistSubscriptionId(userId, subscriptionId) {
 }
 
 /**
- * Initialize / refresh OneSignal for a logged-in user.
- * Safe to call often — only one login flow runs at a time per user.
+ * @param {string} userId
+ * @param {{ forcePrompt?: boolean }} [options] forcePrompt=true after explicit login click
  */
-export async function initOneSignal(userId) {
+export async function initOneSignal(userId, options = {}) {
   if (!userId || typeof window === "undefined") return;
 
-  if (loginInFlight && lastLoginUserId === String(userId)) {
+  const forcePrompt = Boolean(options.forcePrompt);
+
+  if (loginInFlight && lastLoginUserId === String(userId) && !forcePrompt) {
     return loginInFlight;
   }
 
@@ -194,17 +238,12 @@ export async function initOneSignal(userId) {
       const OneSignal = await ensureInit();
       if (!OneSignal) return;
 
-      const subscribed = await ensurePushPermission(OneSignal);
+      const subscribed = await ensurePushPermission(OneSignal, { forcePrompt });
 
-      if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
-        await OneSignal.User.PushSubscription.optIn();
-      }
-
-      // Attach External ID (Supabase user id) so REST can target this user
       await OneSignal.login(String(userId));
       lastLoginUserId = String(userId);
 
-      if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
+      if (subscribed && typeof OneSignal.User?.PushSubscription?.optIn === "function") {
         await OneSignal.User.PushSubscription.optIn();
       }
 
@@ -216,7 +255,7 @@ export async function initOneSignal(userId) {
       console.info("OneSignal ready:", {
         userId: String(userId),
         subscribed,
-        permission: typeof Notification !== "undefined" ? Notification.permission : "n/a",
+        permission: nativePermission(),
         optedIn: push.optedIn,
         subscriptionId: push.id,
         hasToken: Boolean(push.token),
@@ -233,13 +272,19 @@ export async function initOneSignal(userId) {
   return loginInFlight;
 }
 
-/** Explicit opt-in from Notifications page. */
+/** Explicit opt-in from Notifications page — always show permission UI if needed. */
 export async function enablePushNotifications(userId) {
   if (!userId) return false;
-  await initOneSignal(userId);
+  try {
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.removeItem(PROMPT_SESSION_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+  await initOneSignal(userId, { forcePrompt: true });
   const OneSignal = await getOneSignal().catch(() => null);
-  const granted =
-    typeof Notification !== "undefined" && Notification.permission === "granted";
+  const granted = nativePermission() === "granted";
   const optedIn = OneSignal?.User?.PushSubscription?.optedIn === true;
   const hasId = Boolean(OneSignal?.User?.PushSubscription?.id);
   return granted && optedIn && hasId;
