@@ -69,6 +69,7 @@ async function sendResendEmail(payload: {
 
 async function sendOneSignalPush(payload: {
   externalUserId: string;
+  subscriptionId?: string;
   title: string;
   message: string;
   bookingUrl: string;
@@ -91,7 +92,19 @@ async function sendOneSignalPush(payload: {
     chrome_web_icon: `${(Deno.env.get("APP_URL") || "https://www.studio8teen.org").replace(/\/$/, "")}/favicon.jpg`,
   };
 
-  const attempts = [
+  const attempts: { name: string; body: Record<string, unknown> }[] = [];
+
+  if (payload.subscriptionId) {
+    attempts.push({
+      name: "include_subscription_ids",
+      body: {
+        ...baseBody,
+        include_subscription_ids: [String(payload.subscriptionId)],
+      },
+    });
+  }
+
+  attempts.push(
     {
       name: "include_aliases",
       body: {
@@ -99,15 +112,14 @@ async function sendOneSignalPush(payload: {
         include_aliases: { external_id: [String(payload.externalUserId)] },
       },
     },
-    // Legacy targeting still used by some OneSignal web apps
     {
       name: "include_external_user_ids",
       body: {
         ...baseBody,
         include_external_user_ids: [String(payload.externalUserId)],
       },
-    },
-  ];
+    }
+  );
 
   let lastError = "";
   for (const attempt of attempts) {
@@ -134,14 +146,10 @@ async function sendOneSignalPush(payload: {
         continue;
       }
       const recipients = Number(parsed?.recipients ?? 0);
-      if (recipients > 0 || parsed?.id) {
-        // recipients:0 still can mean invalid external id — keep trying fallbacks when 0
-        if (recipients > 0) {
-          return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id };
-        }
-        lastError = `${attempt.name} returned 0 recipients`;
-        continue;
+      if (recipients > 0) {
+        return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id };
       }
+      lastError = `${attempt.name} returned 0 recipients`;
     } catch {
       return { ok: true, channel: "push", method: attempt.name, raw: detail };
     }
@@ -197,7 +205,7 @@ Deno.serve(async (req) => {
 
     const { data: rows, error: loadError } = await supabase
       .from("bookings")
-      .select("id, client_id, event_date, time_slot, packages(name), profiles:client_id(full_name, email)")
+      .select("id, client_id, event_date, time_slot, packages(name), profiles:client_id(full_name, email, onesignal_subscription_id)")
       .in("id", ids);
     if (loadError) throw loadError;
 
@@ -205,7 +213,7 @@ Deno.serve(async (req) => {
       incoming.map((b: AffectedBooking) => [b.id, b.action || "affected"])
     );
 
-    const bookings: AffectedBooking[] = (rows || []).map((r) => ({
+    const bookings = (rows || []).map((r) => ({
       id: r.id,
       clientId: r.client_id,
       clientEmail: (r.profiles as { email?: string } | null)?.email || "",
@@ -214,6 +222,8 @@ Deno.serve(async (req) => {
       date: r.event_date,
       time: r.time_slot,
       action: actionById[r.id] || "affected",
+      subscriptionId:
+        (r.profiles as { onesignal_subscription_id?: string } | null)?.onesignal_subscription_id || "",
     }));
 
     if (!bookings.length) return jsonResponse({ ok: true, notified: 0 });
@@ -259,6 +269,7 @@ Deno.serve(async (req) => {
           }),
           sendOneSignalPush({
             externalUserId: booking.clientId,
+            subscriptionId: booking.subscriptionId,
             title: "Booking Update",
             message,
             bookingUrl,

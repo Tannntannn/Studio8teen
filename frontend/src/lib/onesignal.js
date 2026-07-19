@@ -1,13 +1,15 @@
 /**
  * OneSignal Web SDK (v16) via react-onesignal.
- * Order matters: init → get permission/subscription → login(external_id).
- * Logging in before a subscription exists leaves the External ID unlinked to push.
+ * Order: init → permission/subscription → login(external_id) → save subscription id.
  */
+import { supabase } from "./supabase";
+
 const APP_ID =
   import.meta.env.VITE_ONESIGNAL_APP_ID || "98cf69f1-7952-499b-89de-d3325ed49e3e";
 
 let initPromise = null;
 let OneSignalMod = null;
+let listenersBound = false;
 
 async function getOneSignal() {
   if (!OneSignalMod) {
@@ -35,7 +37,34 @@ async function ensureInit() {
   }
 
   await initPromise;
+  bindForegroundListener(OneSignal);
   return OneSignal;
+}
+
+function bindForegroundListener(OneSignal) {
+  if (listenersBound) return;
+  listenersBound = true;
+  try {
+    // Keep OS toast; also show an in-page banner so testing is obvious
+    OneSignal.Notifications.addEventListener("foregroundWillDisplay", (event) => {
+      const n = event?.notification;
+      const title = n?.title || "Booking update";
+      const body = n?.body || "You have a new notification.";
+      // Don't preventDefault — let the system notification show too
+      try {
+        if (window.__studiobookPushToast) {
+          window.__studiobookPushToast({ title, body, url: n?.launchURL || n?.url });
+        } else {
+          // Lightweight fallback if toast helper not registered
+          console.info("OneSignal push (foreground):", title, body);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+  } catch (err) {
+    console.warn("OneSignal foreground listener:", err?.message || err);
+  }
 }
 
 async function ensurePushPermission(OneSignal) {
@@ -53,7 +82,7 @@ async function ensurePushPermission(OneSignal) {
       try {
         await OneSignal.Slidedown.promptPush();
       } catch {
-        /* continue to native */
+        /* continue */
       }
       if (typeof OneSignal.Notifications?.requestPermission === "function") {
         await OneSignal.Notifications.requestPermission();
@@ -66,8 +95,7 @@ async function ensurePushPermission(OneSignal) {
       await OneSignal.User.PushSubscription.optIn();
     }
 
-    // Give the SDK a moment to register the subscription with OneSignal servers
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, 1000));
 
     return (
       OneSignal.User?.PushSubscription?.optedIn === true ||
@@ -80,10 +108,20 @@ async function ensurePushPermission(OneSignal) {
   }
 }
 
-/**
- * Call after successful login.
- * Must subscribe first, then login so External ID attaches to the web push subscription.
- */
+async function persistSubscriptionId(userId, OneSignal) {
+  const subscriptionId = OneSignal.User?.PushSubscription?.id || null;
+  if (!userId || !subscriptionId) return subscriptionId;
+  try {
+    await supabase
+      .from("profiles")
+      .update({ onesignal_subscription_id: String(subscriptionId) })
+      .eq("id", userId);
+  } catch (err) {
+    console.warn("Could not save OneSignal subscription id:", err?.message || err);
+  }
+  return subscriptionId;
+}
+
 export async function initOneSignal(userId) {
   if (!userId || typeof window === "undefined") return;
 
@@ -92,36 +130,32 @@ export async function initOneSignal(userId) {
     if (!OneSignal) return;
 
     const subscribed = await ensurePushPermission(OneSignal);
-
-    // Link External ID AFTER subscription exists
     await OneSignal.login(String(userId));
 
-    // Re-affirm opt-in after identity link (some browsers drop it across login)
     if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
       await OneSignal.User.PushSubscription.optIn();
     }
 
-    const subscriptionId = OneSignal.User?.PushSubscription?.id || null;
+    await new Promise((r) => setTimeout(r, 500));
+    const subscriptionId = await persistSubscriptionId(userId, OneSignal);
+
     console.info("OneSignal ready:", {
       userId: String(userId),
       subscribed,
       permission: typeof Notification !== "undefined" ? Notification.permission : "n/a",
       optedIn: OneSignal.User?.PushSubscription?.optedIn,
       subscriptionId,
+      externalId: OneSignal.User?.externalId || null,
     });
   } catch (err) {
     console.warn("OneSignal init skipped:", err?.message || err);
   }
 }
 
-/** Manual re-subscribe (e.g. from Notifications page). */
 export async function enablePushNotifications(userId) {
   if (!userId) return false;
   await initOneSignal(userId);
-  if (typeof Notification !== "undefined") {
-    return Notification.permission === "granted";
-  }
-  return false;
+  return typeof Notification !== "undefined" && Notification.permission === "granted";
 }
 
 export async function logoutOneSignal() {
