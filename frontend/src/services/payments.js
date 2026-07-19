@@ -1,5 +1,4 @@
 import { supabase } from "../lib/supabase";
-import { createNotification } from "./notifications";
 
 export async function createPayment(payment) {
   const { data, error } = await supabase.from("payments").insert(payment).select().single();
@@ -13,25 +12,25 @@ export async function updatePayment(id, updates) {
   return data;
 }
 
-export async function verifyPayment(paymentId, bookingId, adminId) {
-  const qrToken = crypto.randomUUID().slice(0, 8);
-
-  const { error: paymentError } = await supabase
-    .from("payments")
-    .update({ status: "verified", verified_by: adminId, verified_at: new Date().toISOString() })
-    .eq("id", paymentId);
-  if (paymentError) throw paymentError;
-
-  const { error: bookingError } = await supabase
-    .from("bookings")
-    .update({ status: "confirmed", qr_token: qrToken })
-    .eq("id", bookingId);
-  if (bookingError) throw bookingError;
-
-  return qrToken;
+export async function verifyPayment(paymentId, bookingId, _adminId) {
+  const { data, error } = await supabase.rpc("admin_verify_payment", {
+    p_payment_id: paymentId,
+    p_booking_id: bookingId,
+  });
+  if (error) throw error;
+  return data;
 }
 
-export async function rejectPayment(paymentId, note, clientId = null) {
+export async function rejectPayment(paymentId, note, _clientId = null) {
+  const { data: payment, error: fetchError } = await supabase
+    .from("payments")
+    .select("id, booking_id, status")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!payment) throw new Error("Payment not found");
+  if (payment.status !== "submitted") throw new Error("Only submitted payments can be rejected.");
+
   const { data, error } = await supabase
     .from("payments")
     .update({ status: "rejected", rejection_note: note })
@@ -40,18 +39,7 @@ export async function rejectPayment(paymentId, note, clientId = null) {
     .single();
   if (error) throw error;
 
-  if (clientId) {
-    try {
-      await createNotification(
-        clientId,
-        "payment",
-        `Payment proof rejected. Reason: ${note || "Please re-upload your payment proof."}`
-      );
-    } catch {
-      // DB trigger may have already created the notification
-    }
-  }
-
+  // In-app notice comes from DB trigger — avoid duplicates
   return data;
 }
 

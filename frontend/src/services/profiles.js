@@ -8,7 +8,8 @@ export async function getProfile(userId) {
 }
 
 export async function updateProfile(userId, updates) {
-  const { data, error } = await supabase.from("profiles").update(updates).eq("id", userId).select().single();
+  const { role: _role, id: _id, ...safe } = updates || {};
+  const { data, error } = await supabase.from("profiles").update(safe).eq("id", userId).select().single();
   if (error) throw error;
   return data;
 }

@@ -19,6 +19,7 @@ import { getDayStatus, groupAvailabilityByDate } from "../../lib/availabilityUti
 import { useAuth } from "../../context/AuthContext";
 import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import { getThumbnailUrl } from "../../lib/cloudinary";
+import { localDateISO } from "../../lib/dateUtils";
 import Swal from "sweetalert2";
 
 function formatLongDate(iso) {
@@ -63,7 +64,7 @@ export default function CreateBooking() {
 
   const selectedPackage = packages.find((p) => p.id === selectedPackageId);
   const allowsWalkIn = Boolean(selectedPackage?.allows_walk_in);
-  const todayIso = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const todayIso = useMemo(() => localDateISO(), []);
 
   const basePrice = Number(selectedPackage?.price || 0);
   const addonsTotal = selectedAddons.reduce((sum, id) => {
@@ -338,6 +339,7 @@ export default function CreateBooking() {
                       slots={slotsForSelectedDate}
                       allSlotTimes={timeSlotTimes}
                       selectedSlot={selectedTimeSlot}
+                      eventDate={selectedDate}
                       onSelect={(t) => setValue("time_slot", t, { shouldValidate: true })}
                       disabled={!selectedDate}
                     />

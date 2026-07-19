@@ -115,20 +115,32 @@ export async function updateBooking(id, updates) {
 }
 
 export async function requestCancellation(id, reason, feeAmount = CANCELLATION_FEE) {
-  const { error: bookingError } = await supabase
+  const { data: booking, error: fetchError } = await supabase
     .from("bookings")
-    .update({ status: "cancellation_pending" })
-    .eq("id", id);
-  if (bookingError) throw bookingError;
+    .select("id, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking) throw new Error("Booking not found");
+  if (booking.status !== "confirmed") {
+    throw new Error("Only confirmed bookings require a cancellation fee request.");
+  }
 
-  const { error } = await supabase.from("cancellations").insert({
+  const { error: insertError } = await supabase.from("cancellations").insert({
     booking_id: id,
     reason,
     fee_amount: feeAmount,
     fee_status: "awaiting",
     refund_status: "na",
   });
-  if (error) throw error;
+  if (insertError) throw insertError;
+
+  const { error: bookingError } = await supabase
+    .from("bookings")
+    .update({ status: "cancellation_pending", updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "confirmed");
+  if (bookingError) throw bookingError;
 }
 
 /** @deprecated Use requestCancellation */
@@ -155,10 +167,16 @@ export async function cancelBookingFree(id, reason = "Cancelled by client before
   if (fetchError) throw fetchError;
   if (!booking) throw new Error("Booking not found");
 
+  const freeStatuses = ["awaiting_payment", "payment_submitted", "pending"];
+  if (!freeStatuses.includes(booking.status)) {
+    throw new Error("This booking requires the cancellation fee flow.");
+  }
+
   const { error } = await supabase
     .from("bookings")
     .update({ status: "cancelled", notes: reason, updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .in("status", freeStatuses);
   if (error) throw error;
 
   await releaseBookingSlot(booking.event_date, booking.time_slot);
@@ -178,10 +196,13 @@ export async function rejectBooking(id, note = "Booking rejected by admin") {
   const wasConfirmed = booking.status === "confirmed";
 
   const payment = booking.payments?.[0];
-  if (payment && payment.status === "submitted") {
+  if (payment && ["submitted", "verified"].includes(payment.status)) {
     await supabase
       .from("payments")
-      .update({ status: "rejected", rejection_note: note })
+      .update({
+        status: payment.status === "verified" ? "rejected" : "rejected",
+        rejection_note: note,
+      })
       .eq("id", payment.id);
   }
 
@@ -318,17 +339,10 @@ export async function deleteBooking(id) {
 }
 
 export async function getBookingByQrToken(token) {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*, packages(name, price)")
-    .eq("qr_token", token)
-    .in("status", ["confirmed", "completed"])
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("verify_booking_qr", { p_token: token });
   if (error) throw error;
   if (!data) throw new Error("Invalid or inactive verification code");
-
-  const [withProfile] = await attachProfiles([data]);
-  return withProfile;
+  return data;
 }
 
 export async function getBookingStats() {

@@ -1,4 +1,5 @@
 import { getDayStatus } from "../../lib/availabilityUtils";
+import { localDateISO } from "../../lib/dateUtils";
 
 /** DentaBase-inspired palette fitted to Studio 8Teen branding */
 const DAY_STYLES = {
@@ -27,7 +28,7 @@ export default function BookingDatePicker({
   const [y, m] = month.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const firstDow = new Date(y, m - 1, 1).getDay();
-  const today = new Date().toISOString().split("T")[0];
+  const today = localDateISO();
   const earliest = minDate || today;
 
   const cells = [];

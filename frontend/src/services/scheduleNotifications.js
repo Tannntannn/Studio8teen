@@ -125,8 +125,8 @@ export async function notifyForClosedAvailability(date, timeSlot = null, reason 
   const msg =
     reason ||
     (timeSlot
-      ? `${date} at ${timeSlot} has been marked unavailable.`
-      : `${date} has been marked as unavailable.`);
+      ? `${date} at ${timeSlot} was marked unavailable. Your booking is still active — please contact the studio or check for a reschedule.`
+      : `${date} was marked unavailable. Your booking is still active — please contact the studio or check for a reschedule.`);
 
   // Fire and forget — don't block admin UI on email/push
   void notifyAffectedClients(bookings, msg, { action: "affected", createInApp: true });

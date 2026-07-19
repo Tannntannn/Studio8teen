@@ -9,6 +9,7 @@ import {
   syncMonthAvailability,
 } from "../../services/settings";
 import { getMyBookings } from "../../services/bookings";
+import { monthEndISO } from "../../lib/dateUtils";
 
 const ACTIVE_STATUSES = new Set([
   "awaiting_payment",
@@ -30,9 +31,8 @@ export default function CalendarPage() {
   });
 
   const load = useCallback(async () => {
-    const [y, m] = month.split("-").map(Number);
     const start = `${month}-01`;
-    const end = new Date(y, m, 0).toISOString().split("T")[0];
+    const end = monthEndISO(month);
     const slots = await getTimeSlots();
     setTimeSlots(slots);
     await syncMonthAvailability(month);

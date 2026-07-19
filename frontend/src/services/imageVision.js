@@ -4,7 +4,8 @@ import { getVisionAnalysisUrl } from "../lib/cloudinary";
 import { buildSuggestionsFromVision, buildFastVisionInstruction } from "../lib/visionPostProcess";
 import { clampSuggestionsToCategories, asCategoryValues } from "./moodBoardCategories";
 
-const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+// OpenRouter key must stay server-side (Supabase edge). Never use VITE_OPENROUTER_API_KEY.
+const OPENROUTER_KEY = null;
 
 /** Fastest free models first — fewer fallbacks = less waiting when busy. */
 const FAST_VISION_MODELS = [
@@ -245,15 +246,6 @@ async function analyzeViaEdgeFunction(urls, categoryOptions) {
 
 function raceVisionProviders(urls, { onStatus, categoryOptions } = {}) {
   const attempts = [];
-
-  if (OPENROUTER_KEY) {
-    attempts.push(
-      analyzeWithOpenRouterDirect(urls, { onStatus, categoryOptions }).then((result) => {
-        if (result?.suggestions) return result;
-        throw result;
-      })
-    );
-  }
 
   attempts.push(
     analyzeViaEdgeFunction(urls, categoryOptions).then((result) => {

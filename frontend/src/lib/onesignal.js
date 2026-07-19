@@ -57,11 +57,11 @@ export async function initOneSignal(userId) {
     await OneSignal.login(String(userId));
 
     if (!localStorage.getItem(CONSENT_KEY)) {
-      localStorage.setItem(CONSENT_KEY, "1");
       try {
         await OneSignal.Slidedown.promptPush();
+        localStorage.setItem(CONSENT_KEY, "1");
       } catch {
-        /* dismissed or already decided */
+        /* dismissed — allow retry later */
       }
     }
   } catch (err) {

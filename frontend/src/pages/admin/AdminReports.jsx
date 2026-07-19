@@ -74,9 +74,17 @@ export default function AdminReports() {
     ];
   }, [filtered]);
 
+  const revenueBookings = useMemo(
+    () =>
+      filtered.filter((b) =>
+        ["confirmed", "completed", "cancellation_pending", "cancellation_submitted"].includes(b.status)
+      ),
+    [filtered]
+  );
+
   const revenueTrend = useMemo(() => {
     const map = {};
-    filtered.forEach((b) => {
+    revenueBookings.forEach((b) => {
       const month = (b.event_date || b.created_at || "").slice(0, 7);
       if (!month) return;
       const pkgPrice = Number(b.packages?.price || 0);
@@ -86,15 +94,15 @@ export default function AdminReports() {
     return Object.entries(map)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, total]) => ({ month, total }));
-  }, [filtered]);
+  }, [revenueBookings]);
 
   const cancelled = filtered.filter((b) => b.status === "cancelled").length;
   const cancelRate = filtered.length ? Math.round((cancelled / filtered.length) * 100) : 0;
   const aov =
-    filtered.length > 0
+    revenueBookings.length > 0
       ? Math.round(
-          filtered.reduce((sum, b) => sum + Number(b.packages?.price || 0) + Number(b.addons_total || 0), 0) /
-            filtered.length
+          revenueBookings.reduce((sum, b) => sum + Number(b.packages?.price || 0) + Number(b.addons_total || 0), 0) /
+            revenueBookings.length
         )
       : 0;
 

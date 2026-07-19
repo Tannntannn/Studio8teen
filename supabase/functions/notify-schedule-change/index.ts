@@ -141,8 +141,32 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const reason = String(body?.reason || "Your booking schedule was updated.");
     const skipInApp = Boolean(body?.skipInApp);
-    const bookings = (Array.isArray(body?.bookings) ? body.bookings : []) as AffectedBooking[];
+    const incoming = Array.isArray(body?.bookings) ? body.bookings : [];
     const appUrl = (Deno.env.get("APP_URL") || body?.appUrl || "https://www.studio8teen.org").replace(/\/$/, "");
+
+    const ids = [...new Set(incoming.map((b: AffectedBooking) => b?.id).filter(Boolean))] as string[];
+    if (!ids.length) return jsonResponse({ ok: true, notified: 0 });
+
+    const { data: rows, error: loadError } = await supabase
+      .from("bookings")
+      .select("id, client_id, event_date, time_slot, packages(name), profiles:client_id(full_name, email)")
+      .in("id", ids);
+    if (loadError) throw loadError;
+
+    const actionById = Object.fromEntries(
+      incoming.map((b: AffectedBooking) => [b.id, b.action || "affected"])
+    );
+
+    const bookings: AffectedBooking[] = (rows || []).map((r) => ({
+      id: r.id,
+      clientId: r.client_id,
+      clientEmail: (r.profiles as { email?: string } | null)?.email || "",
+      clientName: (r.profiles as { full_name?: string } | null)?.full_name || "there",
+      packageName: (r.packages as { name?: string } | null)?.name || "photography",
+      date: r.event_date,
+      time: r.time_slot,
+      action: actionById[r.id] || "affected",
+    }));
 
     if (!bookings.length) return jsonResponse({ ok: true, notified: 0 });
 

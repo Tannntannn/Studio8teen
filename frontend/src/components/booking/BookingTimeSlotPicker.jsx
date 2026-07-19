@@ -1,19 +1,31 @@
 import { getSlotStatus } from "../../lib/availabilityUtils";
+import { isTimeSlotPast, localDateISO } from "../../lib/dateUtils";
 
 const SLOT_STYLES = {
   available: "bg-sky-50 border-sky-300 text-sky-800 hover:bg-sky-100",
   partial: "bg-sky-100 border-sky-400 text-sky-900 hover:bg-sky-200",
   full: "bg-red-50 border-red-300 text-red-400 cursor-not-allowed opacity-70",
   closed: "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60",
+  past: "bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed opacity-70",
   selected: "ring-2 ring-[#A98B75] bg-[#A98B75]/15 border-[#A98B75] text-[#5B4636]",
 };
 
-export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlot, onSelect, disabled }) {
+export default function BookingTimeSlotPicker({
+  slots,
+  allSlotTimes,
+  selectedSlot,
+  onSelect,
+  disabled,
+  eventDate = null,
+}) {
   const slotMap = Object.fromEntries((slots || []).map((s) => [s.time_slot, s]));
+  const today = localDateISO();
+  const filterPast = eventDate && eventDate === today;
 
   const items = (allSlotTimes || []).map((time) => {
     const row = slotMap[time];
-    const status = row ? getSlotStatus(row) : "closed";
+    let status = row ? getSlotStatus(row) : "closed";
+    if (filterPast && isTimeSlotPast(time)) status = "past";
     const selectable = status === "available" || status === "partial";
     const left = row ? row.capacity - row.booked_count : 0;
     return { time, status, selectable, left, row };
@@ -43,11 +55,19 @@ export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlo
               type="button"
               disabled={!selectable}
               onClick={() => selectable && onSelect(time)}
-              className={`py-3 px-2 rounded-xl border text-sm font-medium transition ${SLOT_STYLES[status]} ${isSelected ? SLOT_STYLES.selected : ""} ${!selectable ? "cursor-not-allowed" : "cursor-pointer"}`}
+              className={`py-3 px-2 rounded-xl border text-sm font-medium transition ${SLOT_STYLES[status] || SLOT_STYLES.closed} ${isSelected ? SLOT_STYLES.selected : ""} ${!selectable ? "cursor-not-allowed" : "cursor-pointer"}`}
             >
               <span className="block">{time}</span>
               <span className="block text-[10px] mt-0.5 font-normal">
-                {status === "full" ? "Fully booked" : status === "closed" ? "Closed" : status === "partial" ? `${left} left` : "Open"}
+                {status === "past"
+                  ? "Already passed"
+                  : status === "full"
+                    ? "Fully booked"
+                    : status === "closed"
+                      ? "Closed"
+                      : status === "partial"
+                        ? `${left} left`
+                        : "Open"}
               </span>
             </button>
           );
@@ -55,7 +75,7 @@ export default function BookingTimeSlotPicker({ slots, allSlotTimes, selectedSlo
       </div>
       {items.every((i) => !i.selectable) && (
         <p className="text-xs text-red-600 mt-3">
-          All time slots are full or closed on this date. Please pick another day.
+          All time slots are full, closed, or already passed on this date. Please pick another day.
         </p>
       )}
     </div>

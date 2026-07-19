@@ -368,6 +368,21 @@ function parseJsonContent(raw: string) {
 }
 
 async function fetchImagePart(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid image URL");
+  }
+  const host = parsed.hostname.toLowerCase();
+  const allowed =
+    host === "res.cloudinary.com" ||
+    host.endsWith(".cloudinary.com") ||
+    host === "cdn.studio8teen.org";
+  if (parsed.protocol !== "https:" || !allowed) {
+    throw new Error("Image host not allowed");
+  }
+
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Could not fetch image: ${url}`);
   const mimeType = res.headers.get("content-type") || "image/jpeg";
@@ -646,6 +661,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    const authHeader = req.headers.get("Authorization") || "";
+    if (!authHeader) return jsonResponse({ error: "Unauthorized" }, 401);
+
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: userData, error: userError } = await userClient.auth.getUser();
+    if (userError || !userData?.user) return jsonResponse({ error: "Unauthorized" }, 401);
+
     const { imageUrls, categoryOptions: rawCategoryOptions } = await req.json();
     const urls: string[] = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).slice(0, 2) : [];
     if (!urls.length) return jsonResponse({ error: "imageUrls required" }, 400);
