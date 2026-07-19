@@ -42,7 +42,7 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user && !isEmailConfirmed(session.user)) {
         await supabase.auth.signOut();
         setUser(null);
@@ -52,8 +52,14 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id);
-        void initOneSignal(session.user.id);
-      } else setProfile(null);
+        // Avoid hammering OneSignal on token refresh / every auth event
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+          void initOneSignal(session.user.id);
+        }
+      } else {
+        setProfile(null);
+        if (event === "SIGNED_OUT") void logoutOneSignal();
+      }
     });
 
     return () => subscription.unsubscribe();

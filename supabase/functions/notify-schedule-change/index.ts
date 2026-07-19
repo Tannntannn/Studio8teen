@@ -86,123 +86,118 @@ async function fetchJson(url: string, init: RequestInit) {
   return { res, text, json };
 }
 
-/** Pull push-capable subscription ids + onesignal_id for an external user. */
+/** Resolve Onesignal user + push subscription ids for an external_id. */
 async function resolveSubscriptionIds(
   appId: string,
   apiKey: string,
   externalUserId: string,
   preferredId?: string
 ) {
-  const ids = new Set<string>();
+  const withToken = new Set<string>();
+  const enabledPush = new Set<string>();
   let onesignalId = "";
   const debugSubs: Array<Record<string, unknown>> = [];
 
-  const urls = [
-    `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
-  ];
+  const url =
+    `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`;
 
   for (const mode of ["Key", "Basic"] as const) {
-    for (const url of urls) {
-      try {
-        const { res, text, json } = await fetchJson(url, { headers: authHeaders(apiKey, mode) });
-        console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1200));
-        if (res.status === 401 || res.status === 403) {
-          throw new Error(
-            `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY (full-access App REST API Key).`
-          );
-        }
-        if (!res.ok || !json) continue;
-
-        const root = (json.user as Record<string, unknown>) || json;
-        const identity = (root.identity as Record<string, unknown>) || (json.identity as Record<string, unknown>) || {};
-        onesignalId = String(identity.onesignal_id || "").trim();
-
-        const subs = (root.subscriptions as unknown[]) || (json.subscriptions as unknown[]) || [];
-        for (const raw of subs) {
-          const sub = raw as Record<string, unknown>;
-          const id = String(sub.id || sub.subscription_id || "").trim();
-          const token = String(sub.token || "").trim();
-          const type = String(sub.type || "").toLowerCase();
-          const enabled = sub.enabled === true || Number(sub.notification_types || 0) > 0;
-          const isPush =
-            !type ||
-            type.includes("push") ||
-            type.includes("chrome") ||
-            type.includes("firefox") ||
-            type.includes("safari") ||
-            type.includes("edge");
-
-          debugSubs.push({
-            id,
-            type,
-            enabled: sub.enabled,
-            notification_types: sub.notification_types,
-            hasToken: Boolean(token),
-          });
-
-          // Only target subscriptions that can actually receive web push
-          if (id && isPush && enabled && token) {
-            ids.add(id);
-          }
-        }
-
-        // Prefer live valid ids; only fall back to stored id if it still has a token
-        if (preferredId && ids.has(String(preferredId).trim())) {
-          /* already included */
-        }
-
-        return {
-          ids: [...ids],
-          onesignalId,
-          lookupOk: true,
-          debugSubs,
-        };
-      } catch (err) {
-        if ((err as Error).message?.includes("OneSignal auth failed")) throw err;
-        console.warn("lookup error:", (err as Error).message);
+    try {
+      const { res, text, json } = await fetchJson(url, { headers: authHeaders(apiKey, mode) });
+      console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1200));
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY (full-access App REST API Key).`
+        );
       }
+      if (!res.ok || !json) continue;
+
+      const root = (json.user as Record<string, unknown>) || json;
+      const identity =
+        (root.identity as Record<string, unknown>) ||
+        (json.identity as Record<string, unknown>) ||
+        {};
+      onesignalId = String(identity.onesignal_id || "").trim();
+
+      const subs = (root.subscriptions as unknown[]) || (json.subscriptions as unknown[]) || [];
+      for (const raw of subs) {
+        const sub = raw as Record<string, unknown>;
+        const id = String(sub.id || sub.subscription_id || "").trim();
+        const token = String(sub.token || "").trim();
+        const type = String(sub.type || "").toLowerCase();
+        const enabled =
+          sub.enabled === true ||
+          Number(sub.notification_types || 0) > 0 ||
+          // Some API payloads omit enabled but still list subscribed web push rows
+          type.includes("chrome") ||
+          type.includes("firefox") ||
+          type.includes("safari") ||
+          type.includes("edge") ||
+          type.includes("push");
+        const isPush =
+          !type ||
+          type.includes("push") ||
+          type.includes("chrome") ||
+          type.includes("firefox") ||
+          type.includes("safari") ||
+          type.includes("edge");
+
+        debugSubs.push({
+          id,
+          type,
+          enabled: sub.enabled,
+          notification_types: sub.notification_types,
+          hasToken: Boolean(token),
+        });
+
+        if (!id || !isPush) continue;
+        if (enabled) enabledPush.add(id);
+        if (enabled && token) withToken.add(id);
+      }
+
+      const ids = withToken.size ? [...withToken] : [...enabledPush];
+      if (preferredId) {
+        const pref = String(preferredId).trim();
+        if (pref && !ids.includes(pref)) ids.unshift(pref);
+      }
+
+      return { ids, onesignalId, lookupOk: true, debugSubs };
+    } catch (err) {
+      if ((err as Error).message?.includes("OneSignal auth failed")) throw err;
+      console.warn("lookup error:", (err as Error).message);
     }
   }
 
-  if (preferredId) ids.add(String(preferredId).trim());
-  return { ids: [...ids], onesignalId, lookupOk: false, debugSubs };
+  const ids: string[] = [];
+  if (preferredId) ids.push(String(preferredId).trim());
+  return { ids, onesignalId, lookupOk: false, debugSubs };
 }
 
 async function postNotification(apiKey: string, body: Record<string, unknown>) {
-  const endpoints = ["https://api.onesignal.com/notifications"];
-
   let lastDetail = "";
   for (const mode of ["Key", "Basic"] as const) {
-    for (const endpoint of endpoints) {
-      const { res, text, json } = await fetchJson(endpoint, {
-        method: "POST",
-        headers: authHeaders(apiKey, mode),
-        body: JSON.stringify(body),
-      });
-      console.log("OneSignal send:", mode, endpoint, res.status, text.slice(0, 800));
-      lastDetail = text.slice(0, 300);
-      if (res.status === 401 || res.status === 403) {
-        throw new Error(
-          `OneSignal auth failed (${res.status}). Use a full-access App REST API Key from Settings → Keys & IDs.`
-        );
-      }
-      if (!res.ok) continue;
+    const { res, text, json } = await fetchJson("https://api.onesignal.com/notifications", {
+      method: "POST",
+      headers: authHeaders(apiKey, mode),
+      body: JSON.stringify(body),
+    });
+    console.log("OneSignal send:", mode, res.status, text.slice(0, 800));
+    lastDetail = text.slice(0, 400);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(
+        `OneSignal auth failed (${res.status}). Use a full-access App REST API Key from Settings → Keys & IDs.`
+      );
+    }
+    if (!res.ok) continue;
 
-      const id = String((json as { id?: string } | null)?.id || "");
-      const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
-      const errors = (json as { errors?: unknown } | null)?.errors;
-      if (errors) {
-        lastDetail = JSON.stringify(errors);
-        // Keep going — may be partial invalid ids
-      }
-      // Successful create with at least one recipient
-      if (id && recipients > 0) {
-        return { ok: true, recipients, id, mode, endpoint, body, raw: text.slice(0, 300) };
-      }
-      // Some responses omit recipients but still create a message
-      if (id && !errors) {
-        return { ok: true, recipients: recipients || 1, id, mode, endpoint, body, raw: text.slice(0, 300) };
-      }
+    const id = String((json as { id?: string } | null)?.id || "");
+    const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
+    const errors = (json as { errors?: unknown } | null)?.errors;
+    if (errors) lastDetail = JSON.stringify(errors);
+
+    // Only treat as delivered when OneSignal reports recipients
+    if (id && recipients > 0) {
+      return { ok: true, recipients, id, mode, body, raw: text.slice(0, 300) };
     }
   }
   return { ok: false, recipients: 0, lastDetail };
@@ -231,7 +226,7 @@ async function sendOneSignalPush(payload: {
     String(payload.externalUserId),
     payload.subscriptionId
   );
-  const subscriptionIds = resolved.ids;
+  const subscriptionIds = resolved.ids.filter(Boolean);
 
   console.log("OneSignal targeting:", {
     appId,
@@ -243,37 +238,39 @@ async function sendOneSignalPush(payload: {
 
   const content = {
     app_id: appId,
+    target_channel: "push",
+    isAnyWeb: true,
     headings: { en: payload.title },
     contents: { en: payload.message },
     url: payload.bookingUrl,
     web_url: payload.bookingUrl,
   };
 
-  const attempts: Array<Record<string, unknown>> = [];
-
-  if (subscriptionIds.length) {
-    attempts.push({
+  const attempts: Array<Record<string, unknown>> = [
+    // Primary production path: External ID alias
+    {
       ...content,
-      include_subscription_ids: subscriptionIds,
-    });
-    for (const sid of subscriptionIds) {
-      attempts.push({ ...content, include_subscription_ids: [sid] });
-    }
-  }
+      include_aliases: { external_id: [String(payload.externalUserId)] },
+    },
+  ];
 
   if (resolved.onesignalId) {
     attempts.push({
       ...content,
-      target_channel: "push",
       include_aliases: { onesignal_id: [resolved.onesignalId] },
     });
   }
 
-  attempts.push({
-    ...content,
-    target_channel: "push",
-    include_aliases: { external_id: [String(payload.externalUserId)] },
-  });
+  if (subscriptionIds.length) {
+    attempts.push({
+      ...content,
+      include_subscription_ids: subscriptionIds.slice(0, 20),
+    });
+    // Prefer newest / stored id first
+    for (const sid of subscriptionIds.slice(0, 5)) {
+      attempts.push({ ...content, include_subscription_ids: [sid] });
+    }
+  }
 
   let lastDetail = "";
   for (const body of attempts) {
@@ -295,10 +292,10 @@ async function sendOneSignalPush(payload: {
     .join(" | ");
 
   throw new Error(
-    `OneSignal 0 valid push targets for ${payload.externalUserId}. ` +
-      `validSubscriptionIds=${JSON.stringify(subscriptionIds)}. ` +
+    `OneSignal 0 recipients for ${payload.externalUserId}. ` +
+      `subscriptionIds=${JSON.stringify(subscriptionIds)}. ` +
       `subs=[${subSummary}]. api=${lastDetail}. ` +
-      `Fix: on the client browser, reset notification permission for studio8teen.org, then Notifications → Enable push alerts again (subscriptions need a push token).`
+      `Client must open https://www.studio8teen.org → Notifications → Enable push alerts.`
   );
 }
 

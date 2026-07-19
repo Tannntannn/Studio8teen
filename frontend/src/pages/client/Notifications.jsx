@@ -46,12 +46,12 @@ export default function Notifications() {
       typeof Notification !== "undefined" && Notification.permission === "granted";
     Swal.fire({
       icon: ok ? "success" : "warning",
-      title: ok ? "Push enabled" : granted ? "Push token missing" : "Permission needed",
+      title: ok ? "Push enabled" : granted ? "Almost there" : "Permission needed",
       text: ok
-        ? "This browser is subscribed. Reschedule a booking as admin to test."
+        ? "This browser will receive booking updates as desktop notifications."
         : granted
-          ? "Permission is on, but no push token yet. Clear site data for studio8teen.org, reload, then Enable push alerts again."
-          : "Allow notifications for studio8teen.org in your browser settings, then try again.",
+          ? "Permission is on, but subscription is incomplete. Open https://www.studio8teen.org, clear site data once, reload, then try again."
+          : "Allow notifications for www.studio8teen.org in Chrome settings, then try again.",
       timer: ok ? 2800 : undefined,
       showConfirmButton: !ok,
     });
