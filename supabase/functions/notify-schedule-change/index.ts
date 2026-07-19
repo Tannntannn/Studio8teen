@@ -75,52 +75,79 @@ async function sendOneSignalPush(payload: {
 }) {
   const appId = Deno.env.get("ONESIGNAL_APP_ID");
   const rawKey = Deno.env.get("ONESIGNAL_API_KEY") || "";
-  // Accept keys stored as raw, "Key xxx", or legacy "Basic xxx"
   const apiKey = rawKey.replace(/^(Key|Basic)\s+/i, "").trim();
   if (!appId || !apiKey || !payload.externalUserId) {
+    console.warn("OneSignal skipped: missing appId/apiKey/externalUserId");
     return { skipped: true, channel: "push" };
   }
 
-  const res = await fetch("https://api.onesignal.com/notifications", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      Authorization: `Key ${apiKey}`,
+  const baseBody = {
+    app_id: appId,
+    target_channel: "push",
+    headings: { en: payload.title },
+    contents: { en: payload.message },
+    url: payload.bookingUrl,
+    web_url: payload.bookingUrl,
+    chrome_web_icon: `${(Deno.env.get("APP_URL") || "https://www.studio8teen.org").replace(/\/$/, "")}/favicon.jpg`,
+  };
+
+  const attempts = [
+    {
+      name: "include_aliases",
+      body: {
+        ...baseBody,
+        include_aliases: { external_id: [String(payload.externalUserId)] },
+      },
     },
-    body: JSON.stringify({
-      app_id: appId,
-      include_aliases: { external_id: [String(payload.externalUserId)] },
-      target_channel: "push",
-      headings: { en: payload.title },
-      contents: { en: payload.message },
-      url: payload.bookingUrl,
-      web_url: payload.bookingUrl,
-      chrome_web_icon: `${(Deno.env.get("APP_URL") || "https://www.studio8teen.org").replace(/\/$/, "")}/favicon.jpg`,
-    }),
-  });
+    // Legacy targeting still used by some OneSignal web apps
+    {
+      name: "include_external_user_ids",
+      body: {
+        ...baseBody,
+        include_external_user_ids: [String(payload.externalUserId)],
+      },
+    },
+  ];
 
-  const detail = await res.text();
-  if (!res.ok) {
-    console.error("OneSignal error:", res.status, detail);
-    throw new Error(`OneSignal failed (${res.status}): ${detail}`);
-  }
-
-  try {
-    const parsed = JSON.parse(detail);
-    if (parsed?.errors) {
-      console.error("OneSignal response errors:", parsed.errors);
-      throw new Error(`OneSignal rejected: ${JSON.stringify(parsed.errors)}`);
-    }
-    console.log("OneSignal sent:", {
-      id: parsed?.id,
-      recipients: parsed?.recipients,
-      externalUserId: payload.externalUserId,
+  let lastError = "";
+  for (const attempt of attempts) {
+    const res = await fetch("https://api.onesignal.com/notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Key ${apiKey}`,
+      },
+      body: JSON.stringify(attempt.body),
     });
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith("OneSignal")) throw e;
+    const detail = await res.text();
+    console.log(`OneSignal ${attempt.name}:`, res.status, detail.slice(0, 500));
+
+    if (!res.ok) {
+      lastError = `${attempt.name} ${res.status}: ${detail}`;
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(detail);
+      if (parsed?.errors?.length) {
+        lastError = `${attempt.name} errors: ${JSON.stringify(parsed.errors)}`;
+        continue;
+      }
+      const recipients = Number(parsed?.recipients ?? 0);
+      if (recipients > 0 || parsed?.id) {
+        // recipients:0 still can mean invalid external id — keep trying fallbacks when 0
+        if (recipients > 0) {
+          return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id };
+        }
+        lastError = `${attempt.name} returned 0 recipients`;
+        continue;
+      }
+    } catch {
+      return { ok: true, channel: "push", method: attempt.name, raw: detail };
+    }
   }
 
-  return { ok: true, channel: "push", detail };
+  throw new Error(`OneSignal failed for ${payload.externalUserId}: ${lastError}`);
 }
 
 function actionPhrase(action?: string) {

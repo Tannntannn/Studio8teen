@@ -12,6 +12,8 @@ import {
   subscribeToNotifications,
 } from "../../services/notifications";
 import { useAuth } from "../../context/AuthContext";
+import { enablePushNotifications } from "../../lib/onesignal";
+import Swal from "sweetalert2";
 
 const TYPE_STYLES = {
   info: "bg-blue-50 border-blue-100 text-blue-800",
@@ -37,6 +39,20 @@ export default function Notifications() {
 
   const unread = items.filter((n) => !n.is_read).length;
 
+  const handleEnablePush = async () => {
+    if (!user?.id) return;
+    const ok = await enablePushNotifications(user.id);
+    Swal.fire({
+      icon: ok ? "success" : "warning",
+      title: ok ? "Push enabled" : "Permission needed",
+      text: ok
+        ? "This browser is subscribed. Reschedule a booking as admin to test."
+        : "Allow notifications for studio8teen.org in your browser settings, then try again.",
+      timer: ok ? 2800 : undefined,
+      showConfirmButton: !ok,
+    });
+  };
+
   const handleDismiss = async (id, e) => {
     e.stopPropagation();
     await dismissNotification(id);
@@ -51,7 +67,14 @@ export default function Notifications() {
             <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Notifications</h1>
             <p className="mt-2 text-gray-500">{unread} unread</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-center sm:justify-end">
+            <button
+              type="button"
+              onClick={handleEnablePush}
+              className="text-sm px-3 py-1.5 rounded-lg bg-[#A98B75] text-white hover:bg-[#8a7260]"
+            >
+              Enable push alerts
+            </button>
             {unread > 0 && (
               <button type="button" onClick={() => markAllNotificationsRead().then(load)} className="text-sm text-[#A98B75] hover:underline">
                 Mark all read
