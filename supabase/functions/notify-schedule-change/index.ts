@@ -242,7 +242,7 @@ async function sendOneSignalPush(payload: {
     isAnyWeb: true,
     headings: { en: payload.title },
     contents: { en: payload.message },
-    url: payload.bookingUrl,
+    // OneSignal rejects payloads that set both `url` and `web_url`
     web_url: payload.bookingUrl,
   };
 
