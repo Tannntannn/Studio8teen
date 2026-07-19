@@ -39,22 +39,31 @@ npm run dev
 2. Add env vars from `.env.example`
 3. Deploy — `vercel.json` handles SPA routing
 
-### 5. Forgot Password Email (Resend)
+### 5. Email (Resend) + Push (OneSignal)
 
-1. Create a Resend API key
-2. Replace `re_xxxxxxxxx` with your real API key
+Used for forgot-password and **schedule-change notifications** (availability close, cancel, reschedule).
+
+1. Create a Resend API key and verify your domain
+2. Create a OneSignal Web Push app; copy App ID + REST API key
 3. Set Supabase secrets:
 
 ```bash
 supabase secrets set RESEND_API_KEY=re_xxxxxxxxx
-supabase secrets set RESEND_FROM_EMAIL=onboarding@resend.dev
+supabase secrets set RESEND_FROM_EMAIL="Studio 8Teen <noreply@yourdomain.com>"
+supabase secrets set ONESIGNAL_APP_ID=your_onesignal_app_id
+supabase secrets set ONESIGNAL_API_KEY=your_onesignal_rest_api_key
+supabase secrets set APP_URL=https://www.studio8teen.org
 ```
 
-4. Deploy the function:
+4. Add `VITE_ONESIGNAL_APP_ID` to frontend `.env.local` / Vercel
+5. Deploy functions:
 
 ```bash
 supabase functions deploy forgot-password
+supabase functions deploy notify-schedule-change
 ```
+
+6. Run migration `20260719000000_schedule_change_notifications.sql` (adds notification title/link columns)
 
 ## Features
 

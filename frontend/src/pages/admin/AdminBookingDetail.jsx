@@ -8,7 +8,8 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
 import BookingPoseSuggestionsPanel from "../../components/booking/BookingPoseSuggestionsPanel";
-import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking } from "../../services/bookings";
+import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking } from "../../services/bookings";
+import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 
@@ -101,9 +102,94 @@ export default function AdminBookingDetail() {
     });
     if (!isConfirmed) return;
     try {
-      await rejectBooking(id, note || "Booking rejected by admin");
-      Swal.fire({ icon: "success", title: "Booking rejected", timer: 2000, showConfirmButton: false });
+      const result = await rejectBooking(id, note || "Booking rejected by admin");
+      Swal.fire({
+        icon: "success",
+        title: "Booking rejected",
+        text:
+          result?.notified > 0
+            ? "1 confirmed booking was affected. Client has been notified."
+            : undefined,
+        timer: 2800,
+        showConfirmButton: false,
+      });
       navigate("/admin/bookings", { replace: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleCancelConfirmed = async () => {
+    const { value: note, isConfirmed } = await Swal.fire({
+      title: "Cancel this confirmed booking?",
+      text: "The client will be notified by in-app, email, and push.",
+      input: "text",
+      inputPlaceholder: "Reason for cancellation",
+      showCancelButton: true,
+      confirmButtonText: "Cancel booking",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!isConfirmed) return;
+    try {
+      const result = await rejectBooking(id, note || "Your booking has been cancelled");
+      Swal.fire({
+        icon: "success",
+        title: "Booking cancelled",
+        text:
+          result?.notified > 0
+            ? "1 confirmed booking was affected. Client has been notified."
+            : "Client has been notified.",
+        timer: 3000,
+        showConfirmButton: false,
+      });
+      navigate("/admin/bookings", { replace: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleReschedule = async () => {
+    let slots = [];
+    try {
+      slots = await getTimeSlots();
+    } catch {
+      slots = ["09:00-11:00", "13:00-15:00", "15:00-17:00"];
+    }
+    const { value: formValues, isConfirmed } = await Swal.fire({
+      title: "Reschedule booking",
+      html: `
+        <input id="sb-reschedule-date" type="date" class="swal2-input" value="${booking.event_date || ""}" />
+        <select id="sb-reschedule-slot" class="swal2-input">
+          ${slots.map((s) => `<option value="${s}" ${s === booking.time_slot ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+        <input id="sb-reschedule-note" class="swal2-input" placeholder="Optional note for client" />
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: "Reschedule",
+      confirmButtonColor: "#A98B75",
+      preConfirm: () => {
+        const event_date = document.getElementById("sb-reschedule-date")?.value;
+        const time_slot = document.getElementById("sb-reschedule-slot")?.value;
+        const note = document.getElementById("sb-reschedule-note")?.value?.trim();
+        if (!event_date || !time_slot) {
+          Swal.showValidationMessage("Date and time slot are required");
+          return false;
+        }
+        return { event_date, time_slot, note };
+      },
+    });
+    if (!isConfirmed || !formValues) return;
+    try {
+      await rescheduleBooking(id, formValues);
+      Swal.fire({
+        icon: "success",
+        title: "Booking rescheduled",
+        text: "1 confirmed booking was affected. Client has been notified.",
+        timer: 3000,
+        showConfirmButton: false,
+      });
+      load();
     } catch (err) {
       setError(err.message);
     }
@@ -182,13 +268,29 @@ export default function AdminBookingDetail() {
           <Link to="/admin/bookings" className="text-[#A98B75] text-sm hover:underline">← Back to bookings</Link>
           <div className="flex flex-wrap gap-2">
             {booking.status === "confirmed" && (
-              <button
-                type="button"
-                onClick={() => setCompleteOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260] transition"
-              >
-                <FaCheckCircle size={14} /> Mark completed
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleReschedule}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#A98B75] text-[#A98B75] text-sm font-medium hover:bg-[#A98B75]/10 transition"
+                >
+                  Reschedule
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelConfirmed}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition"
+                >
+                  Cancel booking
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompleteOpen(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260] transition"
+                >
+                  <FaCheckCircle size={14} /> Mark completed
+                </button>
+              </>
             )}
             {["awaiting_payment", "payment_submitted"].includes(booking.status) && (
               <button

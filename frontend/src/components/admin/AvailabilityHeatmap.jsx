@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import Swal from "sweetalert2";
 import {
   ensureMonthAvailability,
   getTimeSlots,
@@ -35,6 +36,17 @@ function cellStatus(cell) {
   if (cell.booked_count >= cell.capacity) return "full";
   if (cell.booked_count > 0) return "partial";
   return "available";
+}
+
+function toastAffected(count) {
+  if (!count) return;
+  Swal.fire({
+    icon: "info",
+    title: "Clients notified",
+    text: `${count} confirmed booking${count === 1 ? " was" : "s were"} affected. Clients have been notified.`,
+    timer: 3200,
+    showConfirmButton: false,
+  });
 }
 
 export default function AvailabilityHeatmap({ compact = false }) {
@@ -94,13 +106,14 @@ export default function AvailabilityHeatmap({ compact = false }) {
       const booked = cell?.booked_count || 0;
       const capacity = cell?.capacity ?? 2;
       const status = cellStatus(cell);
+      let result = { notified: 0 };
 
       if (status === "closed") {
-        await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: Math.max(2, booked + 1) });
+        result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: Math.max(2, booked + 1) });
       } else if (status === "available") {
-        await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
+        result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
       } else if (status === "partial") {
-        await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: booked });
+        result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: booked });
       } else if (status === "full") {
         const next = window.prompt(
           `Slot ${date} ${slot}: ${booked}/${capacity} booked.\nEnter new capacity (min ${booked}) or leave blank to close:`,
@@ -108,12 +121,13 @@ export default function AvailabilityHeatmap({ compact = false }) {
         );
         if (next === null) return;
         if (next.trim() === "") {
-          await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
+          result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
         } else {
           const cap = Math.max(booked, parseInt(next, 10) || capacity + 1);
-          await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: cap });
+          result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: cap });
         }
       }
+      toastAffected(result?.notified || 0);
       await load();
     } catch (err) {
       console.error(err);
@@ -126,7 +140,8 @@ export default function AvailabilityHeatmap({ compact = false }) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     setBusy(`day-${day}`);
     try {
-      await setDayAvailability(date, enable, timeSlots);
+      const result = await setDayAvailability(date, enable, timeSlots);
+      if (!enable) toastAffected(result?.notified || 0);
       await load();
     } finally {
       setBusy(null);

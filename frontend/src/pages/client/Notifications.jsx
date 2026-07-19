@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { FaTimes } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -70,29 +71,49 @@ export default function Notifications() {
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((n) => (
-              <div
-                key={n.id}
-                onClick={() => !n.is_read && markNotificationRead(n.id).then(load)}
-                className={`relative bg-white rounded-xl border p-4 pr-12 cursor-pointer transition hover:shadow-sm ${
-                  n.is_read ? "border-[#E8E1DA] opacity-80" : "border-[#A98B75]/40 shadow-sm"
-                }`}
-              >
-                <span className={`inline-block text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full mb-2 ${TYPE_STYLES[n.type] || TYPE_STYLES.info}`}>
-                  {n.type || "info"}
-                </span>
-                <p className={`text-sm ${n.is_read ? "text-gray-600" : "text-[#5B4636] font-medium"}`}>{n.message}</p>
-                <p className="text-xs text-gray-400 mt-2">{new Date(n.created_at).toLocaleString()}</p>
-                <button
-                  type="button"
-                  onClick={(e) => handleDismiss(n.id, e)}
-                  className="absolute top-3 right-3 w-8 h-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center"
-                  aria-label="Dismiss notification"
-                >
-                  <FaTimes size={14} />
-                </button>
-              </div>
-            ))}
+            {items.map((n) => {
+              const body = (
+                <>
+                  <span className={`inline-block text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full mb-2 ${TYPE_STYLES[n.type] || TYPE_STYLES.info}`}>
+                    {n.type || "info"}
+                  </span>
+                  {n.title && (
+                    <p className={`text-sm mb-1 ${n.is_read ? "text-gray-700" : "text-[#5B4636] font-semibold"}`}>
+                      {n.title}
+                    </p>
+                  )}
+                  <p className={`text-sm ${n.is_read ? "text-gray-600" : "text-[#5B4636] font-medium"}`}>{n.message}</p>
+                  <p className="text-xs text-gray-400 mt-2">{new Date(n.created_at).toLocaleString()}</p>
+                </>
+              );
+              const shellClass = `relative block bg-white rounded-xl border p-4 pr-12 cursor-pointer transition hover:shadow-sm ${
+                n.is_read ? "border-[#E8E1DA] opacity-80" : "border-[#A98B75]/40 shadow-sm"
+              }`;
+              const onOpen = () => {
+                if (!n.is_read) markNotificationRead(n.id).then(load);
+              };
+              return (
+                <div key={n.id} className="relative">
+                  {n.link ? (
+                    <Link to={n.link} onClick={onOpen} className={shellClass}>
+                      {body}
+                    </Link>
+                  ) : (
+                    <div onClick={onOpen} className={shellClass}>
+                      {body}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleDismiss(n.id, e)}
+                    className="absolute top-3 right-3 z-10 w-8 h-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center"
+                    aria-label="Dismiss notification"
+                  >
+                    <FaTimes size={14} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

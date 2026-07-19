@@ -3,6 +3,7 @@ import { subscribeTableChanges } from "../lib/realtime";
 import { CANCELLATION_FEE } from "../lib/constants";
 import { createNotification } from "./notifications";
 import { syncAvailabilitySlot } from "./settings";
+import { normalizeAffectedBooking, notifyAffectedClients } from "./scheduleNotifications";
 async function getCurrentUserId() {
   const {
     data: { user },
@@ -167,11 +168,14 @@ export async function cancelBookingFree(id, reason = "Cancelled by client before
 export async function rejectBooking(id, note = "Booking rejected by admin") {
   const { data: booking, error: fetchError } = await supabase
     .from("bookings")
-    .select("client_id, event_date, time_slot, payments(id, status)")
+    .select("id, client_id, event_date, time_slot, status, packages(name), payments(id, status)")
     .eq("id", id)
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!booking) throw new Error("Booking not found");
+
+  const [withProfile] = await attachProfiles([booking]);
+  const wasConfirmed = booking.status === "confirmed";
 
   const payment = booking.payments?.[0];
   if (payment && payment.status === "submitted") {
@@ -189,6 +193,16 @@ export async function rejectBooking(id, note = "Booking rejected by admin") {
 
   await releaseBookingSlot(booking.event_date, booking.time_slot);
 
+  // Status trigger already creates a basic in-app notification
+  if (wasConfirmed) {
+    void notifyAffectedClients(
+      [normalizeAffectedBooking(withProfile, "cancelled")],
+      note || "Your booking has been cancelled",
+      { action: "cancelled", createInApp: false }
+    );
+    return { notified: 1 };
+  }
+
   try {
     await createNotification(
       booking.client_id,
@@ -198,6 +212,49 @@ export async function rejectBooking(id, note = "Booking rejected by admin") {
   } catch {
     // DB trigger may have already created the notification
   }
+  return { notified: 0 };
+}
+
+/** Admin reschedules a confirmed (or active) booking to a new date/slot. */
+export async function rescheduleBooking(id, { event_date, time_slot, note }) {
+  if (!event_date || !time_slot) throw new Error("New date and time slot are required.");
+
+  const { data: booking, error: fetchError } = await supabase
+    .from("bookings")
+    .select("id, client_id, event_date, time_slot, status, notes, packages(name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking) throw new Error("Booking not found");
+
+  const oldDate = booking.event_date;
+  const oldSlot = booking.time_slot;
+
+  const { data: updated, error } = await supabase
+    .from("bookings")
+    .update({
+      event_date,
+      time_slot,
+      notes: note ? `${booking.notes ? booking.notes + "\n" : ""}Reschedule: ${note}` : booking.notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .select("id, client_id, event_date, time_slot, status, packages(name)")
+    .single();
+  if (error) throw error;
+
+  await releaseBookingSlot(oldDate, oldSlot);
+  await syncAvailabilitySlot(event_date, time_slot);
+
+  const [withProfile] = await attachProfiles([updated]);
+  const reason = `Your booking has been rescheduled to ${event_date} at ${time_slot}${note ? `. ${note}` : ""}`;
+  void notifyAffectedClients(
+    [normalizeAffectedBooking(withProfile, "rescheduled")],
+    reason,
+    { action: "rescheduled", createInApp: true }
+  );
+
+  return { booking: withProfile, notified: 1 };
 }
 
 export async function getClientBookings(clientId) {

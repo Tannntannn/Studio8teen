@@ -1,6 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
 import { DEFAULT_TIME_SLOTS } from "../lib/constants";
+import { notifyForClosedAvailability } from "./scheduleNotifications";
 
 export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
 
@@ -125,20 +126,30 @@ export async function updateAvailabilitySlot(date, timeSlot, { is_enabled, capac
     .eq("time_slot", timeSlot)
     .maybeSingle();
 
+  const wasEnabled = existing?.is_enabled !== false;
+  const nextEnabled = is_enabled ?? existing?.is_enabled ?? true;
+
   const row = {
     avail_date: date,
     time_slot: timeSlot,
-    is_enabled: is_enabled ?? existing?.is_enabled ?? true,
+    is_enabled: nextEnabled,
     capacity: capacity ?? existing?.capacity ?? 2,
     booked_count: existing?.booked_count ?? 0,
   };
 
   const { error } = await supabase.from("studio_availability").upsert(row, { onConflict: "avail_date,time_slot" });
   if (error) throw error;
+
+  let notified = 0;
+  if (wasEnabled && nextEnabled === false) {
+    const result = await notifyForClosedAvailability(date, timeSlot);
+    notified = result.notified;
+  }
+  return { notified };
 }
 
 export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
-  await updateAvailabilitySlot(date, timeSlot, { is_enabled: isEnabled });
+  return updateAvailabilitySlot(date, timeSlot, { is_enabled: isEnabled });
 }
 
 export async function setDayAvailability(date, isEnabled, slots) {
@@ -156,6 +167,13 @@ export async function setDayAvailability(date, isEnabled, slots) {
 
   const { error } = await supabase.from("studio_availability").upsert(rows, { onConflict: "avail_date,time_slot" });
   if (error) throw error;
+
+  let notified = 0;
+  if (!isEnabled) {
+    const result = await notifyForClosedAvailability(date, null);
+    notified = result.notified;
+  }
+  return { notified };
 }
 
 export async function isSlotBookable(date, timeSlot) {

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { initOneSignal } from "../lib/onesignal";
 
 const AuthContext = createContext(null);
 
@@ -34,7 +35,10 @@ export function AuthProvider({ children }) {
         return;
       }
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+        void initOneSignal(session.user.id);
+      }
       setLoading(false);
     });
 
@@ -46,8 +50,10 @@ export function AuthProvider({ children }) {
         return;
       }
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setProfile(null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+        void initOneSignal(session.user.id);
+      } else setProfile(null);
     });
 
     return () => subscription.unsubscribe();
@@ -74,7 +80,10 @@ export function AuthProvider({ children }) {
       await supabase.auth.signOut();
       throw new Error("Please confirm your email before logging in.");
     }
-    if (data.user) await fetchProfile(data.user.id);
+    if (data.user) {
+      await fetchProfile(data.user.id);
+      void initOneSignal(data.user.id);
+    }
     return data;
   };
 
