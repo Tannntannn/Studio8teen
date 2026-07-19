@@ -71,9 +71,9 @@ export async function dismissAllNotifications() {
   if (error) throw error;
 }
 
-export function subscribeToNotifications(userId, callback) {
+export function subscribeToNotifications(userId, callback, channelKey = "list") {
   return supabase
-    .channel(`notifications-${userId}`)
+    .channel(`notifications-${channelKey}-${userId}`)
     .on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
