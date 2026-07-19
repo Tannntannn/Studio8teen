@@ -55,15 +55,18 @@ supabase secrets set ONESIGNAL_API_KEY=your_onesignal_rest_api_key
 supabase secrets set APP_URL=https://www.studio8teen.org
 ```
 
-4. Add `VITE_ONESIGNAL_APP_ID` to frontend `.env.local` / Vercel
-5. Deploy functions:
+4. Add `VITE_ONESIGNAL_APP_ID=98cf69f1-7952-499b-89de-d3325ed49e3e` to frontend `.env.local` / Vercel
+5. Ensure `frontend/public/OneSignalSDKWorker.js` is deployed (served at `/OneSignalSDKWorker.js`)
+6. Deploy functions:
 
 ```bash
 supabase functions deploy forgot-password
 supabase functions deploy notify-schedule-change
 ```
 
-6. Run migration `20260719000000_schedule_change_notifications.sql` (adds notification title/link columns)
+7. Run migration `20260719000000_schedule_change_notifications.sql` (adds notification title/link columns)
+
+In OneSignal dashboard → Settings → Push & In-App → Web, set Site URL to `https://www.studio8teen.org` (and enable localhost testing separately if needed).
 
 ## Features
 

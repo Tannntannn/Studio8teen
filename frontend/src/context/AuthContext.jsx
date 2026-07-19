@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { initOneSignal } from "../lib/onesignal";
+import { initOneSignal, logoutOneSignal } from "../lib/onesignal";
 
 const AuthContext = createContext(null);
 
@@ -88,6 +88,7 @@ export function AuthProvider({ children }) {
   };
 
   const signOut = async () => {
+    void logoutOneSignal();
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
