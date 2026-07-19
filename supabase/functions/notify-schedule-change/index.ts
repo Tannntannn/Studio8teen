@@ -74,32 +74,53 @@ async function sendOneSignalPush(payload: {
   bookingUrl: string;
 }) {
   const appId = Deno.env.get("ONESIGNAL_APP_ID");
-  const apiKey = Deno.env.get("ONESIGNAL_API_KEY");
+  const rawKey = Deno.env.get("ONESIGNAL_API_KEY") || "";
+  // Accept keys stored as raw, "Key xxx", or legacy "Basic xxx"
+  const apiKey = rawKey.replace(/^(Key|Basic)\s+/i, "").trim();
   if (!appId || !apiKey || !payload.externalUserId) {
     return { skipped: true, channel: "push" };
   }
 
-  const res = await fetch("https://onesignal.com/api/v1/notifications", {
+  const res = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${apiKey}`,
+      "Content-Type": "application/json; charset=utf-8",
+      Authorization: `Key ${apiKey}`,
     },
     body: JSON.stringify({
       app_id: appId,
-      include_aliases: { external_id: [payload.externalUserId] },
+      include_aliases: { external_id: [String(payload.externalUserId)] },
       target_channel: "push",
       headings: { en: payload.title },
       contents: { en: payload.message },
       url: payload.bookingUrl,
+      web_url: payload.bookingUrl,
+      chrome_web_icon: `${(Deno.env.get("APP_URL") || "https://www.studio8teen.org").replace(/\/$/, "")}/favicon.jpg`,
     }),
   });
 
+  const detail = await res.text();
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`OneSignal failed: ${detail}`);
+    console.error("OneSignal error:", res.status, detail);
+    throw new Error(`OneSignal failed (${res.status}): ${detail}`);
   }
-  return { ok: true, channel: "push" };
+
+  try {
+    const parsed = JSON.parse(detail);
+    if (parsed?.errors) {
+      console.error("OneSignal response errors:", parsed.errors);
+      throw new Error(`OneSignal rejected: ${JSON.stringify(parsed.errors)}`);
+    }
+    console.log("OneSignal sent:", {
+      id: parsed?.id,
+      recipients: parsed?.recipients,
+      externalUserId: payload.externalUserId,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("OneSignal")) throw e;
+  }
+
+  return { ok: true, channel: "push", detail };
 }
 
 function actionPhrase(action?: string) {
