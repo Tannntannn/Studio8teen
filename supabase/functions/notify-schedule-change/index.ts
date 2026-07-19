@@ -86,7 +86,7 @@ async function fetchJson(url: string, init: RequestInit) {
   return { res, text, json };
 }
 
-/** Pull every subscription id for this external user from OneSignal. */
+/** Pull push-capable subscription ids + onesignal_id for an external user. */
 async function resolveSubscriptionIds(
   appId: string,
   apiKey: string,
@@ -94,35 +94,69 @@ async function resolveSubscriptionIds(
   preferredId?: string
 ) {
   const ids = new Set<string>();
-  if (preferredId) ids.add(String(preferredId).trim());
+  let onesignalId = "";
+  const debugSubs: Array<Record<string, unknown>> = [];
 
   const urls = [
     `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
-    `https://onesignal.com/api/v1/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
   ];
 
   for (const mode of ["Key", "Basic"] as const) {
     for (const url of urls) {
       try {
         const { res, text, json } = await fetchJson(url, { headers: authHeaders(apiKey, mode) });
-        console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1000));
+        console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1200));
         if (res.status === 401 || res.status === 403) {
           throw new Error(
-            `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY in Supabase secrets with the REST API Key from OneSignal → Settings → Keys & IDs.`
+            `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY (full-access App REST API Key).`
           );
         }
         if (!res.ok || !json) continue;
 
         const root = (json.user as Record<string, unknown>) || json;
+        const identity = (root.identity as Record<string, unknown>) || (json.identity as Record<string, unknown>) || {};
+        onesignalId = String(identity.onesignal_id || "").trim();
+
         const subs = (root.subscriptions as unknown[]) || (json.subscriptions as unknown[]) || [];
         for (const raw of subs) {
           const sub = raw as Record<string, unknown>;
           const id = String(sub.id || sub.subscription_id || "").trim();
-          // Prefer currently enabled push subscriptions
-          const enabled = sub.enabled !== false;
-          if (id && enabled) ids.add(id);
+          const token = String(sub.token || "").trim();
+          const type = String(sub.type || "").toLowerCase();
+          const enabled = sub.enabled === true || Number(sub.notification_types || 0) > 0;
+          const isPush =
+            !type ||
+            type.includes("push") ||
+            type.includes("chrome") ||
+            type.includes("firefox") ||
+            type.includes("safari") ||
+            type.includes("edge");
+
+          debugSubs.push({
+            id,
+            type,
+            enabled: sub.enabled,
+            notification_types: sub.notification_types,
+            hasToken: Boolean(token),
+          });
+
+          // Only target subscriptions that can actually receive web push
+          if (id && isPush && enabled && token) {
+            ids.add(id);
+          }
         }
-        if (ids.size) return { ids: [...ids], lookupOk: true };
+
+        // Prefer live valid ids; only fall back to stored id if it still has a token
+        if (preferredId && ids.has(String(preferredId).trim())) {
+          /* already included */
+        }
+
+        return {
+          ids: [...ids],
+          onesignalId,
+          lookupOk: true,
+          debugSubs,
+        };
       } catch (err) {
         if ((err as Error).message?.includes("OneSignal auth failed")) throw err;
         console.warn("lookup error:", (err as Error).message);
@@ -130,17 +164,12 @@ async function resolveSubscriptionIds(
     }
   }
 
-  return { ids: [...ids], lookupOk: false };
+  if (preferredId) ids.add(String(preferredId).trim());
+  return { ids: [...ids], onesignalId, lookupOk: false, debugSubs };
 }
 
-async function postNotification(
-  apiKey: string,
-  body: Record<string, unknown>
-) {
-  const endpoints = [
-    "https://api.onesignal.com/notifications",
-    "https://onesignal.com/api/v1/notifications",
-  ];
+async function postNotification(apiKey: string, body: Record<string, unknown>) {
+  const endpoints = ["https://api.onesignal.com/notifications"];
 
   let lastDetail = "";
   for (const mode of ["Key", "Basic"] as const) {
@@ -151,21 +180,28 @@ async function postNotification(
         body: JSON.stringify(body),
       });
       console.log("OneSignal send:", mode, endpoint, res.status, text.slice(0, 800));
-      lastDetail = `${mode} ${res.status}: ${text.slice(0, 200)}`;
+      lastDetail = text.slice(0, 300);
       if (res.status === 401 || res.status === 403) {
         throw new Error(
-          `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY in Supabase secrets with the REST API Key from OneSignal → Settings → Keys & IDs.`
+          `OneSignal auth failed (${res.status}). Use a full-access App REST API Key from Settings → Keys & IDs.`
         );
       }
       if (!res.ok) continue;
+
+      const id = String((json as { id?: string } | null)?.id || "");
       const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
       const errors = (json as { errors?: unknown } | null)?.errors;
       if (errors) {
         lastDetail = JSON.stringify(errors);
-        continue;
+        // Keep going — may be partial invalid ids
       }
-      if (recipients > 0) {
-        return { ok: true, recipients, id: (json as { id?: string })?.id, mode, endpoint, body };
+      // Successful create with at least one recipient
+      if (id && recipients > 0) {
+        return { ok: true, recipients, id, mode, endpoint, body, raw: text.slice(0, 300) };
+      }
+      // Some responses omit recipients but still create a message
+      if (id && !errors) {
+        return { ok: true, recipients: recipients || 1, id, mode, endpoint, body, raw: text.slice(0, 300) };
       }
     }
   }
@@ -200,8 +236,9 @@ async function sendOneSignalPush(payload: {
   console.log("OneSignal targeting:", {
     appId,
     externalUserId: payload.externalUserId,
+    onesignalId: resolved.onesignalId,
     subscriptionIds,
-    lookupOk: resolved.lookupOk,
+    debugSubs: resolved.debugSubs,
   });
 
   const content = {
@@ -212,73 +249,56 @@ async function sendOneSignalPush(payload: {
     web_url: payload.bookingUrl,
   };
 
-  // 1) Prefer exact subscription ids (same as dashboard test device)
+  const attempts: Array<Record<string, unknown>> = [];
+
   if (subscriptionIds.length) {
-    const batch = await postNotification(apiKey, {
+    attempts.push({
       ...content,
       include_subscription_ids: subscriptionIds,
     });
-    if (batch.ok) {
-      return { ok: true, channel: "push", method: "include_subscription_ids", ...batch, subscriptionIds };
-    }
-
-    // Try one-by-one (dashboard-style)
     for (const sid of subscriptionIds) {
-      const single = await postNotification(apiKey, {
-        ...content,
-        include_subscription_ids: [sid],
-      });
-      if (single.ok) {
-        return {
-          ok: true,
-          channel: "push",
-          method: "include_subscription_ids_single",
-          subscriptionId: sid,
-          ...single,
-        };
-      }
-
-      // Legacy player id field
-      const legacy = await postNotification(apiKey, {
-        ...content,
-        include_player_ids: [sid],
-      });
-      if (legacy.ok) {
-        return {
-          ok: true,
-          channel: "push",
-          method: "include_player_ids",
-          subscriptionId: sid,
-          ...legacy,
-        };
-      }
+      attempts.push({ ...content, include_subscription_ids: [sid] });
     }
   }
 
-  // 2) External ID aliases
-  const alias = await postNotification(apiKey, {
+  if (resolved.onesignalId) {
+    attempts.push({
+      ...content,
+      target_channel: "push",
+      include_aliases: { onesignal_id: [resolved.onesignalId] },
+    });
+  }
+
+  attempts.push({
     ...content,
     target_channel: "push",
     include_aliases: { external_id: [String(payload.externalUserId)] },
   });
-  if (alias.ok) {
-    return { ok: true, channel: "push", method: "include_aliases", ...alias };
+
+  let lastDetail = "";
+  for (const body of attempts) {
+    const result = await postNotification(apiKey, body);
+    if (result.ok) {
+      return {
+        ok: true,
+        channel: "push",
+        method: Object.keys(body).find((k) => k.startsWith("include_")) || "push",
+        ...result,
+        subscriptionIds,
+      };
+    }
+    lastDetail = result.lastDetail || lastDetail;
   }
 
-  const external = await postNotification(apiKey, {
-    ...content,
-    include_external_user_ids: [String(payload.externalUserId)],
-    channel_for_external_user_ids: "push",
-  });
-  if (external.ok) {
-    return { ok: true, channel: "push", method: "include_external_user_ids", ...external };
-  }
+  const subSummary = (resolved.debugSubs || [])
+    .map((s) => `${s.id}:${s.type}:token=${s.hasToken}:enabled=${s.enabled}`)
+    .join(" | ");
 
   throw new Error(
-    `OneSignal 0 recipients for external_id=${payload.externalUserId} ` +
-      `subscriptionIds=${JSON.stringify(subscriptionIds)} lookupOk=${resolved.lookupOk}. ` +
-      `Copy the REST API Key from OneSignal → Settings → Keys & IDs and run: ` +
-      `supabase secrets set ONESIGNAL_API_KEY=YOUR_REST_API_KEY`
+    `OneSignal 0 valid push targets for ${payload.externalUserId}. ` +
+      `validSubscriptionIds=${JSON.stringify(subscriptionIds)}. ` +
+      `subs=[${subSummary}]. api=${lastDetail}. ` +
+      `Fix: on the client browser, reset notification permission for studio8teen.org, then Notifications → Enable push alerts again (subscriptions need a push token).`
   );
 }
 
