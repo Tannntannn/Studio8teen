@@ -29,7 +29,7 @@ async function ensureInit() {
 
   const OneSignal = await getOneSignal();
 
-  // Drop legacy root SW registrations that can block the production /onesignal/ worker
+  // Clean up broken /onesignal/ SW registrations if a prior build registered HTML there
   if ("serviceWorker" in navigator) {
     try {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -40,10 +40,7 @@ async function ensureInit() {
             reg.installing?.scriptURL ||
             reg.waiting?.scriptURL ||
             "";
-          if (
-            scriptURL.includes("OneSignalSDKWorker") &&
-            !scriptURL.includes("/onesignal/")
-          ) {
+          if (scriptURL.includes("/onesignal/")) {
             await reg.unregister();
           }
         })
@@ -58,9 +55,9 @@ async function ensureInit() {
       appId: APP_ID,
       // Localhost only — never needed in production
       ...(IS_LOCALHOST ? { allowLocalhostAsSecureOrigin: true } : {}),
-      // Recommended dedicated path (avoids SPA / root SW conflicts)
-      serviceWorkerPath: "onesignal/OneSignalSDKWorker.js",
-      serviceWorkerParam: { scope: "/onesignal/" },
+      // Root worker is served as real JS on Vercel (subdirectory can hit SPA rewrite)
+      serviceWorkerPath: "OneSignalSDKWorker.js",
+      serviceWorkerParam: { scope: "/" },
       notifyButton: { enable: false },
     }).catch((err) => {
       initPromise = null;
