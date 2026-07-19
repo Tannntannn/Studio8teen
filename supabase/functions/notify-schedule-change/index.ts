@@ -106,6 +106,11 @@ async function resolveSubscriptionIds(
       try {
         const { res, text, json } = await fetchJson(url, { headers: authHeaders(apiKey, mode) });
         console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1000));
+        if (res.status === 401 || res.status === 403) {
+          throw new Error(
+            `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY in Supabase secrets with the REST API Key from OneSignal → Settings → Keys & IDs.`
+          );
+        }
         if (!res.ok || !json) continue;
 
         const root = (json.user as Record<string, unknown>) || json;
@@ -113,16 +118,19 @@ async function resolveSubscriptionIds(
         for (const raw of subs) {
           const sub = raw as Record<string, unknown>;
           const id = String(sub.id || sub.subscription_id || "").trim();
-          if (id) ids.add(id);
+          // Prefer currently enabled push subscriptions
+          const enabled = sub.enabled !== false;
+          if (id && enabled) ids.add(id);
         }
-        if (ids.size) return [...ids];
+        if (ids.size) return { ids: [...ids], lookupOk: true };
       } catch (err) {
+        if ((err as Error).message?.includes("OneSignal auth failed")) throw err;
         console.warn("lookup error:", (err as Error).message);
       }
     }
   }
 
-  return [...ids];
+  return { ids: [...ids], lookupOk: false };
 }
 
 async function postNotification(
@@ -134,6 +142,7 @@ async function postNotification(
     "https://onesignal.com/api/v1/notifications",
   ];
 
+  let lastDetail = "";
   for (const mode of ["Key", "Basic"] as const) {
     for (const endpoint of endpoints) {
       const { res, text, json } = await fetchJson(endpoint, {
@@ -142,16 +151,25 @@ async function postNotification(
         body: JSON.stringify(body),
       });
       console.log("OneSignal send:", mode, endpoint, res.status, text.slice(0, 800));
+      lastDetail = `${mode} ${res.status}: ${text.slice(0, 200)}`;
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          `OneSignal auth failed (${res.status}). Update ONESIGNAL_API_KEY in Supabase secrets with the REST API Key from OneSignal → Settings → Keys & IDs.`
+        );
+      }
       if (!res.ok) continue;
       const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
       const errors = (json as { errors?: unknown } | null)?.errors;
-      if (errors) continue;
+      if (errors) {
+        lastDetail = JSON.stringify(errors);
+        continue;
+      }
       if (recipients > 0) {
         return { ok: true, recipients, id: (json as { id?: string })?.id, mode, endpoint, body };
       }
     }
   }
-  return { ok: false, recipients: 0 };
+  return { ok: false, recipients: 0, lastDetail };
 }
 
 async function sendOneSignalPush(payload: {
@@ -171,17 +189,19 @@ async function sendOneSignalPush(payload: {
     };
   }
 
-  const subscriptionIds = await resolveSubscriptionIds(
+  const resolved = await resolveSubscriptionIds(
     appId,
     apiKey,
     String(payload.externalUserId),
     payload.subscriptionId
   );
+  const subscriptionIds = resolved.ids;
 
   console.log("OneSignal targeting:", {
     appId,
     externalUserId: payload.externalUserId,
     subscriptionIds,
+    lookupOk: resolved.lookupOk,
   });
 
   const content = {
@@ -255,7 +275,10 @@ async function sendOneSignalPush(payload: {
   }
 
   throw new Error(
-    `OneSignal 0 recipients for external_id=${payload.externalUserId} subscriptionIds=${JSON.stringify(subscriptionIds)}. Check REST API Key in Supabase secrets matches Keys & IDs in OneSignal.`
+    `OneSignal 0 recipients for external_id=${payload.externalUserId} ` +
+      `subscriptionIds=${JSON.stringify(subscriptionIds)} lookupOk=${resolved.lookupOk}. ` +
+      `Copy the REST API Key from OneSignal → Settings → Keys & IDs and run: ` +
+      `supabase secrets set ONESIGNAL_API_KEY=YOUR_REST_API_KEY`
   );
 }
 
