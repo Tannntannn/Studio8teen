@@ -181,13 +181,18 @@ export default function AdminBookingDetail() {
     });
     if (!isConfirmed || !formValues) return;
     try {
-      await rescheduleBooking(id, formValues);
+      const result = await rescheduleBooking(id, formValues);
+      const push = result?.notifyResult?.result?.results?.[0]?.channels?.push;
+      const pushOk = push?.ok === true;
+      const pushError = push?.error || push?.reason || "";
       Swal.fire({
-        icon: "success",
+        icon: pushOk ? "success" : "warning",
         title: "Booking rescheduled",
-        text: "1 confirmed booking was affected. Client has been notified.",
-        timer: 3000,
-        showConfirmButton: false,
+        html: pushOk
+          ? `Client notified by email + push (${push.recipients || 1} device).`
+          : `Email/in-app sent.<br/><small>Push issue: ${pushError || "no recipients — check OneSignal REST API key in Supabase secrets"}</small>`,
+        timer: pushOk ? 3200 : undefined,
+        showConfirmButton: !pushOk,
       });
       load();
     } catch (err) {

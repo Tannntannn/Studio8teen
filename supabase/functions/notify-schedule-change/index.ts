@@ -67,48 +67,91 @@ async function sendResendEmail(payload: {
   return { ok: true, channel: "email" };
 }
 
-async function onesignalHeaders(apiKey: string) {
+function authHeaders(apiKey: string, mode: "Key" | "Basic" = "Key") {
   return {
     "Content-Type": "application/json; charset=utf-8",
-    Authorization: `Key ${apiKey}`,
+    Authorization: mode === "Key" ? `Key ${apiKey}` : `Basic ${apiKey}`,
   };
 }
 
-/** Resolve live web-push subscription IDs for an external user id. */
-async function resolveOneSignalSubscriptionIds(
+async function fetchJson(url: string, init: RequestInit) {
+  const res = await fetch(url, init);
+  const text = await res.text();
+  let json: Record<string, unknown> | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  return { res, text, json };
+}
+
+/** Pull every subscription id for this external user from OneSignal. */
+async function resolveSubscriptionIds(
   appId: string,
   apiKey: string,
   externalUserId: string,
   preferredId?: string
-): Promise<string[]> {
+) {
   const ids = new Set<string>();
-  if (preferredId) ids.add(String(preferredId));
+  if (preferredId) ids.add(String(preferredId).trim());
 
-  try {
-    const res = await fetch(
-      `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
-      { headers: await onesignalHeaders(apiKey) }
-    );
-    const text = await res.text();
-    console.log("OneSignal lookup user:", res.status, text.slice(0, 800));
-    if (res.ok) {
-      const data = JSON.parse(text);
-      const subs = data?.subscriptions || data?.user?.subscriptions || [];
-      for (const sub of subs) {
-        const type = String(sub?.type || sub?.device_type || "").toLowerCase();
-        const enabled = sub?.enabled !== false && sub?.invalid_identifier !== true;
-        const id = sub?.id || sub?.subscription_id;
-        // ChromePush / FirefoxPush / SafariPush / etc.
-        if (id && enabled && (type.includes("push") || type.includes("chrome") || type.includes("firefox") || type.includes("safari") || !type)) {
-          ids.add(String(id));
+  const urls = [
+    `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
+    `https://onesignal.com/api/v1/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
+  ];
+
+  for (const mode of ["Key", "Basic"] as const) {
+    for (const url of urls) {
+      try {
+        const { res, text, json } = await fetchJson(url, { headers: authHeaders(apiKey, mode) });
+        console.log("OneSignal user lookup:", mode, res.status, text.slice(0, 1000));
+        if (!res.ok || !json) continue;
+
+        const root = (json.user as Record<string, unknown>) || json;
+        const subs = (root.subscriptions as unknown[]) || (json.subscriptions as unknown[]) || [];
+        for (const raw of subs) {
+          const sub = raw as Record<string, unknown>;
+          const id = String(sub.id || sub.subscription_id || "").trim();
+          if (id) ids.add(id);
         }
+        if (ids.size) return [...ids];
+      } catch (err) {
+        console.warn("lookup error:", (err as Error).message);
       }
     }
-  } catch (err) {
-    console.warn("OneSignal user lookup failed:", (err as Error).message);
   }
 
   return [...ids];
+}
+
+async function postNotification(
+  apiKey: string,
+  body: Record<string, unknown>
+) {
+  const endpoints = [
+    "https://api.onesignal.com/notifications",
+    "https://onesignal.com/api/v1/notifications",
+  ];
+
+  for (const mode of ["Key", "Basic"] as const) {
+    for (const endpoint of endpoints) {
+      const { res, text, json } = await fetchJson(endpoint, {
+        method: "POST",
+        headers: authHeaders(apiKey, mode),
+        body: JSON.stringify(body),
+      });
+      console.log("OneSignal send:", mode, endpoint, res.status, text.slice(0, 800));
+      if (!res.ok) continue;
+      const recipients = Number((json as { recipients?: number } | null)?.recipients ?? 0);
+      const errors = (json as { errors?: unknown } | null)?.errors;
+      if (errors) continue;
+      if (recipients > 0) {
+        return { ok: true, recipients, id: (json as { id?: string })?.id, mode, endpoint, body };
+      }
+    }
+  }
+  return { ok: false, recipients: 0 };
 }
 
 async function sendOneSignalPush(payload: {
@@ -118,118 +161,102 @@ async function sendOneSignalPush(payload: {
   message: string;
   bookingUrl: string;
 }) {
-  const appId = Deno.env.get("ONESIGNAL_APP_ID");
-  const rawKey = Deno.env.get("ONESIGNAL_API_KEY") || "";
-  const apiKey = rawKey.replace(/^(Key|Basic)\s+/i, "").trim();
+  const appId = Deno.env.get("ONESIGNAL_APP_ID") || "";
+  const apiKey = (Deno.env.get("ONESIGNAL_API_KEY") || "").replace(/^(Key|Basic)\s+/i, "").trim();
   if (!appId || !apiKey || !payload.externalUserId) {
-    console.warn("OneSignal skipped: missing appId/apiKey/externalUserId", {
-      hasAppId: Boolean(appId),
-      hasKey: Boolean(apiKey),
-      externalUserId: payload.externalUserId,
-    });
-    return { skipped: true, channel: "push" };
+    return {
+      skipped: true,
+      channel: "push",
+      reason: `missing config appId=${Boolean(appId)} key=${Boolean(apiKey)} user=${payload.externalUserId}`,
+    };
   }
 
-  const subscriptionIds = await resolveOneSignalSubscriptionIds(
+  const subscriptionIds = await resolveSubscriptionIds(
     appId,
     apiKey,
     String(payload.externalUserId),
     payload.subscriptionId
   );
 
-  const baseBody = {
+  console.log("OneSignal targeting:", {
+    appId,
+    externalUserId: payload.externalUserId,
+    subscriptionIds,
+  });
+
+  const content = {
     app_id: appId,
-    target_channel: "push",
     headings: { en: payload.title },
     contents: { en: payload.message },
     url: payload.bookingUrl,
     web_url: payload.bookingUrl,
   };
 
-  const attempts: { name: string; body: Record<string, unknown> }[] = [];
-
+  // 1) Prefer exact subscription ids (same as dashboard test device)
   if (subscriptionIds.length) {
-    attempts.push({
-      name: "include_subscription_ids",
-      body: {
-        ...baseBody,
-        include_subscription_ids: subscriptionIds,
-      },
+    const batch = await postNotification(apiKey, {
+      ...content,
+      include_subscription_ids: subscriptionIds,
     });
+    if (batch.ok) {
+      return { ok: true, channel: "push", method: "include_subscription_ids", ...batch, subscriptionIds };
+    }
+
+    // Try one-by-one (dashboard-style)
+    for (const sid of subscriptionIds) {
+      const single = await postNotification(apiKey, {
+        ...content,
+        include_subscription_ids: [sid],
+      });
+      if (single.ok) {
+        return {
+          ok: true,
+          channel: "push",
+          method: "include_subscription_ids_single",
+          subscriptionId: sid,
+          ...single,
+        };
+      }
+
+      // Legacy player id field
+      const legacy = await postNotification(apiKey, {
+        ...content,
+        include_player_ids: [sid],
+      });
+      if (legacy.ok) {
+        return {
+          ok: true,
+          channel: "push",
+          method: "include_player_ids",
+          subscriptionId: sid,
+          ...legacy,
+        };
+      }
+    }
   }
 
-  attempts.push(
-    {
-      name: "include_aliases",
-      body: {
-        ...baseBody,
-        include_aliases: { external_id: [String(payload.externalUserId)] },
-      },
-    },
-    {
-      name: "include_external_user_ids",
-      body: {
-        ...baseBody,
-        include_external_user_ids: [String(payload.externalUserId)],
-      },
-    }
+  // 2) External ID aliases
+  const alias = await postNotification(apiKey, {
+    ...content,
+    target_channel: "push",
+    include_aliases: { external_id: [String(payload.externalUserId)] },
+  });
+  if (alias.ok) {
+    return { ok: true, channel: "push", method: "include_aliases", ...alias };
+  }
+
+  const external = await postNotification(apiKey, {
+    ...content,
+    include_external_user_ids: [String(payload.externalUserId)],
+    channel_for_external_user_ids: "push",
+  });
+  if (external.ok) {
+    return { ok: true, channel: "push", method: "include_external_user_ids", ...external };
+  }
+
+  throw new Error(
+    `OneSignal 0 recipients for external_id=${payload.externalUserId} subscriptionIds=${JSON.stringify(subscriptionIds)}. Check REST API Key in Supabase secrets matches Keys & IDs in OneSignal.`
   );
-
-  let lastError = "";
-  for (const attempt of attempts) {
-    const res = await fetch("https://api.onesignal.com/notifications", {
-      method: "POST",
-      headers: await onesignalHeaders(apiKey),
-      body: JSON.stringify(attempt.body),
-    });
-    const detail = await res.text();
-    console.log(`OneSignal ${attempt.name}:`, res.status, detail.slice(0, 800));
-
-    if (!res.ok) {
-      lastError = `${attempt.name} ${res.status}: ${detail}`;
-      // Retry once with Basic auth for older keys
-      if (res.status === 401 || res.status === 403) {
-        const basicRes = await fetch("https://api.onesignal.com/notifications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            Authorization: `Basic ${apiKey}`,
-          },
-          body: JSON.stringify(attempt.body),
-        });
-        const basicDetail = await basicRes.text();
-        console.log(`OneSignal ${attempt.name} Basic retry:`, basicRes.status, basicDetail.slice(0, 500));
-        if (basicRes.ok) {
-          try {
-            const parsed = JSON.parse(basicDetail);
-            if (Number(parsed?.recipients || 0) > 0) {
-              return { ok: true, channel: "push", method: `${attempt.name}+Basic`, recipients: parsed.recipients, id: parsed.id };
-            }
-          } catch {
-            /* continue */
-          }
-        }
-      }
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(detail);
-      if (parsed?.errors?.length) {
-        lastError = `${attempt.name} errors: ${JSON.stringify(parsed.errors)}`;
-        continue;
-      }
-      const recipients = Number(parsed?.recipients ?? 0);
-      if (recipients > 0) {
-        return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id, subscriptionIds };
-      }
-      lastError = `${attempt.name} returned 0 recipients; ids=${JSON.stringify(subscriptionIds)}`;
-    } catch {
-      return { ok: true, channel: "push", method: attempt.name, raw: detail };
-    }
-  }
-
-  throw new Error(`OneSignal failed for ${payload.externalUserId}: ${lastError}`);
 }
 
 function actionPhrase(action?: string) {
@@ -249,24 +276,20 @@ Deno.serve(async (req) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    // Prefer caller JWT for admin check; fall back to service role body
     const anon = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
       { global: { headers: { Authorization: authHeader } } }
     );
     const { data: userData } = await anon.auth.getUser();
-    if (!userData?.user) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
+    if (!userData?.user) return jsonResponse({ error: "Unauthorized" }, 401);
+
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", userData.user.id)
       .maybeSingle();
-    if (profile?.role !== "admin") {
-      return jsonResponse({ error: "Admin only" }, 403);
-    }
+    if (profile?.role !== "admin") return jsonResponse({ error: "Admin only" }, 403);
 
     const body = await req.json();
     const reason = String(body?.reason || "Your booking schedule was updated.");
@@ -286,11 +309,10 @@ Deno.serve(async (req) => {
     const clientIds = [...new Set((rows || []).map((r) => r.client_id).filter(Boolean))];
     let profilesById: Record<string, { full_name?: string; email?: string; onesignal_subscription_id?: string }> = {};
     if (clientIds.length) {
-      const { data: profiles, error: profileError } = await supabase
+      const { data: profiles } = await supabase
         .from("profiles")
         .select("id, full_name, email, onesignal_subscription_id")
         .in("id", clientIds);
-      if (profileError) console.warn("profile load:", profileError.message);
       profilesById = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
     }
 
@@ -299,23 +321,21 @@ Deno.serve(async (req) => {
     );
 
     const bookings = (rows || []).map((r) => {
-      const profile = profilesById[r.client_id] || {};
+      const p = profilesById[r.client_id] || {};
       return {
         id: r.id,
         clientId: r.client_id,
-        clientEmail: profile.email || "",
-        clientName: profile.full_name || "there",
+        clientEmail: p.email || "",
+        clientName: p.full_name || "there",
         packageName: (r.packages as { name?: string } | null)?.name || "photography",
         date: r.event_date,
         time: r.time_slot,
         action: actionById[r.id] || "affected",
-        subscriptionId: profile.onesignal_subscription_id || "",
+        subscriptionId: p.onesignal_subscription_id || "",
       };
     });
 
-    if (!bookings.length) return jsonResponse({ ok: true, notified: 0 });
-
-    const results = await Promise.allSettled(
+    const results = await Promise.all(
       bookings.map(async (booking) => {
         const when = [booking.date, booking.time].filter(Boolean).join(" at ") || "your scheduled date";
         const phrase = actionPhrase(booking.action);
@@ -326,61 +346,51 @@ Deno.serve(async (req) => {
         const link = `/client-bookings/${booking.id}`;
         const bookingUrl = `${appUrl}${link}`;
 
-        const tasks: Promise<unknown>[] = [];
-        const channelNames: string[] = [];
+        const channelResults: Record<string, unknown> = {};
 
         if (!skipInApp) {
-          channelNames.push("in_app");
-          tasks.push(
-            supabase.from("notifications").insert({
-              user_id: booking.clientId,
-              type: "booking",
-              title,
-              message,
-              link,
-              booking_id: booking.id,
-              is_read: false,
-            })
-          );
+          const { error } = await supabase.from("notifications").insert({
+            user_id: booking.clientId,
+            type: "booking",
+            title,
+            message,
+            link,
+            booking_id: booking.id,
+            is_read: false,
+          });
+          channelResults.in_app = error ? { ok: false, error: error.message } : { ok: true };
         }
 
-        channelNames.push("email", "push");
-        tasks.push(
-          sendResendEmail({
+        try {
+          channelResults.email = await sendResendEmail({
             to: booking.clientEmail || "",
             clientName: booking.clientName || "there",
             packageName: booking.packageName || "photography",
             bookingDate: when,
             reason,
             bookingUrl,
-          }),
-          sendOneSignalPush({
+          });
+        } catch (e) {
+          channelResults.email = { ok: false, error: (e as Error).message };
+        }
+
+        try {
+          channelResults.push = await sendOneSignalPush({
             externalUserId: booking.clientId,
             subscriptionId: booking.subscriptionId,
             title: "Booking Update",
             message,
             bookingUrl,
-          })
-        );
+          });
+        } catch (e) {
+          channelResults.push = { ok: false, error: (e as Error).message };
+        }
 
-        const channelResults = await Promise.allSettled(tasks);
-
-        return {
-          bookingId: booking.id,
-          channels: channelResults.map((r, i) => ({
-            channel: channelNames[i],
-            status: r.status,
-            error: r.status === "rejected" ? String((r as PromiseRejectedResult).reason) : null,
-          })),
-        };
+        return { bookingId: booking.id, clientId: booking.clientId, channels: channelResults };
       })
     );
 
-    return jsonResponse({
-      ok: true,
-      notified: results.filter((r) => r.status === "fulfilled").length,
-      results,
-    });
+    return jsonResponse({ ok: true, notified: results.length, results });
   } catch (e) {
     console.error(e);
     return jsonResponse({ ok: false, error: (e as Error).message }, 500);
