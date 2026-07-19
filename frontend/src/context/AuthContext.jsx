@@ -90,6 +90,7 @@ export function AuthProvider({ children }) {
     }
     if (data.user) {
       await fetchProfile(data.user.id);
+      // Soft init — Allow modal is shown by ClientLayout after navigation
       void initOneSignal(data.user.id);
     }
     return data;
