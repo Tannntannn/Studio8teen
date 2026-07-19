@@ -108,8 +108,26 @@ async function ensurePushPermission(OneSignal) {
   }
 }
 
-async function persistSubscriptionId(userId, OneSignal) {
-  const subscriptionId = OneSignal.User?.PushSubscription?.id || null;
+async function waitForPushToken(OneSignal, attempts = 8) {
+  for (let i = 0; i < attempts; i++) {
+    const sub = OneSignal.User?.PushSubscription;
+    const id = sub?.id || null;
+    const token = sub?.token || null;
+    const optedIn = sub?.optedIn === true;
+    if (id && token && optedIn) {
+      return { id: String(id), token: String(token), optedIn: true };
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const sub = OneSignal.User?.PushSubscription;
+  return {
+    id: sub?.id ? String(sub.id) : null,
+    token: sub?.token ? String(sub.token) : null,
+    optedIn: sub?.optedIn === true,
+  };
+}
+
+async function persistSubscriptionId(userId, subscriptionId) {
   if (!userId || !subscriptionId) return subscriptionId;
   try {
     await supabase
@@ -130,21 +148,31 @@ export async function initOneSignal(userId) {
     if (!OneSignal) return;
 
     const subscribed = await ensurePushPermission(OneSignal);
+    // Subscribe first, then attach external_id (avoids empty-token aliases)
+    if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
+      await OneSignal.User.PushSubscription.optIn();
+    }
+
+    const push = await waitForPushToken(OneSignal);
     await OneSignal.login(String(userId));
 
     if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
       await OneSignal.User.PushSubscription.optIn();
     }
 
-    await new Promise((r) => setTimeout(r, 500));
-    const subscriptionId = await persistSubscriptionId(userId, OneSignal);
+    const afterLogin = await waitForPushToken(OneSignal, 4);
+    const subscriptionId = afterLogin.id || push.id;
+    if (subscriptionId && (afterLogin.token || push.token)) {
+      await persistSubscriptionId(userId, subscriptionId);
+    }
 
     console.info("OneSignal ready:", {
       userId: String(userId),
       subscribed,
       permission: typeof Notification !== "undefined" ? Notification.permission : "n/a",
-      optedIn: OneSignal.User?.PushSubscription?.optedIn,
+      optedIn: afterLogin.optedIn || push.optedIn,
       subscriptionId,
+      hasToken: Boolean(afterLogin.token || push.token),
       externalId: OneSignal.User?.externalId || null,
     });
   } catch (err) {
@@ -155,7 +183,11 @@ export async function initOneSignal(userId) {
 export async function enablePushNotifications(userId) {
   if (!userId) return false;
   await initOneSignal(userId);
-  return typeof Notification !== "undefined" && Notification.permission === "granted";
+  const OneSignal = await getOneSignal().catch(() => null);
+  const hasToken = Boolean(OneSignal?.User?.PushSubscription?.token);
+  const granted =
+    typeof Notification !== "undefined" && Notification.permission === "granted";
+  return granted && hasToken;
 }
 
 export async function logoutOneSignal() {
