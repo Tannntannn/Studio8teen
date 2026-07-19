@@ -155,22 +155,43 @@ async function resolveSubscriptionIds(
         if (enabled && token) withToken.add(id);
       }
 
-      const ids = withToken.size ? [...withToken] : [...enabledPush];
-      if (preferredId) {
-        const pref = String(preferredId).trim();
-        if (pref && !ids.includes(pref)) ids.unshift(pref);
+      const tokenIds = [...withToken];
+      const enabledIds = [...enabledPush];
+      const pref = preferredId ? String(preferredId).trim() : "";
+
+      // Prefer the profile's current subscription, else the newest token-bearing one
+      let bestId = "";
+      if (pref && (withToken.has(pref) || enabledPush.has(pref))) {
+        bestId = pref;
+      } else if (tokenIds.length) {
+        bestId = tokenIds[tokenIds.length - 1];
+      } else if (enabledIds.length) {
+        bestId = enabledIds[enabledIds.length - 1];
+      } else if (pref) {
+        bestId = pref;
       }
 
-      return { ids, onesignalId, lookupOk: true, debugSubs };
+      return {
+        ids: bestId ? [bestId] : [],
+        allIds: tokenIds.length ? tokenIds : enabledIds,
+        onesignalId,
+        lookupOk: true,
+        debugSubs,
+      };
     } catch (err) {
       if ((err as Error).message?.includes("OneSignal auth failed")) throw err;
       console.warn("lookup error:", (err as Error).message);
     }
   }
 
-  const ids: string[] = [];
-  if (preferredId) ids.push(String(preferredId).trim());
-  return { ids, onesignalId, lookupOk: false, debugSubs };
+  const pref = preferredId ? String(preferredId).trim() : "";
+  return {
+    ids: pref ? [pref] : [],
+    allIds: pref ? [pref] : [],
+    onesignalId,
+    lookupOk: false,
+    debugSubs,
+  };
 }
 
 async function postNotification(apiKey: string, body: Record<string, unknown>) {
@@ -244,12 +265,14 @@ async function sendOneSignalPush(payload: {
     payload.subscriptionId
   );
   const subscriptionIds = resolved.ids.filter(Boolean);
+  const targetId = subscriptionIds[0] || "";
 
   console.log("OneSignal targeting:", {
     appId,
     externalUserId: payload.externalUserId,
     onesignalId: resolved.onesignalId,
-    subscriptionIds,
+    targetId,
+    ignoredExtraSubs: (resolved.allIds || []).filter((id) => id !== targetId),
     debugSubs: resolved.debugSubs,
   });
 
@@ -262,32 +285,26 @@ async function sendOneSignalPush(payload: {
     web_url: payload.bookingUrl,
   };
 
-  // Send exactly once — multiple attempts were delivering 2–3 duplicate pushes
-  let body: Record<string, unknown>;
-  if (subscriptionIds.length === 1) {
-    body = { ...content, include_subscription_ids: [subscriptionIds[0]] };
-  } else if (subscriptionIds.length > 1) {
-    body = { ...content, include_subscription_ids: subscriptionIds.slice(0, 20) };
-  } else if (resolved.onesignalId) {
-    body = {
-      ...content,
-      include_aliases: { onesignal_id: [resolved.onesignalId] },
-    };
-  } else {
-    body = {
-      ...content,
-      include_aliases: { external_id: [String(payload.externalUserId)] },
-    };
+  // Exactly one subscription → one desktop/OS notification
+  if (!targetId) {
+    throw new Error(
+      `OneSignal push failed for ${payload.externalUserId}: no push subscription id.`
+    );
   }
+
+  const body: Record<string, unknown> = {
+    ...content,
+    include_subscription_ids: [targetId],
+  };
 
   const result = await postNotification(apiKey, body);
   if (result.ok) {
     return {
       ok: true,
       channel: "push",
-      method: Object.keys(body).find((k) => k.startsWith("include_")) || "push",
+      method: "include_subscription_ids",
       ...result,
-      subscriptionIds,
+      subscriptionIds: [targetId],
     };
   }
 
@@ -297,7 +314,7 @@ async function sendOneSignalPush(payload: {
 
   throw new Error(
     `OneSignal push failed for ${payload.externalUserId}. ` +
-      `subscriptionIds=${JSON.stringify(subscriptionIds)}. ` +
+      `targetId=${targetId}. ` +
       `subs=[${subSummary}]. api=${result.lastDetail}.`
   );
 }
