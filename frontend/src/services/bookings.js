@@ -273,7 +273,9 @@ export async function rescheduleBooking(id, { event_date, time_slot, note }) {
     [normalizeAffectedBooking(withProfile, "rescheduled")],
     reason,
     { action: "rescheduled", createInApp: true }
-  );
+  ).then((result) => {
+    console.info("reschedule notify:", result);
+  });
 
   return { booking: withProfile, notified: 1 };
 }

@@ -98,7 +98,7 @@ export async function notifyAffectedClients(affectedBookings, reason, options = 
   if (!list.length) return { notified: 0 };
 
   try {
-    const { error } = await supabase.functions.invoke("notify-schedule-change", {
+    const { data, error } = await supabase.functions.invoke("notify-schedule-change", {
       body: {
         reason,
         skipInApp: !createInApp,
@@ -107,7 +107,8 @@ export async function notifyAffectedClients(affectedBookings, reason, options = 
       },
     });
     if (error) throw error;
-    return { notified: list.length };
+    console.info("notify-schedule-change result:", data);
+    return { notified: list.length, result: data };
   } catch (err) {
     console.warn("notify-schedule-change failed, falling back to in-app:", err?.message || err);
     if (createInApp) {

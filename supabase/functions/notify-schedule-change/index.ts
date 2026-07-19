@@ -67,6 +67,50 @@ async function sendResendEmail(payload: {
   return { ok: true, channel: "email" };
 }
 
+async function onesignalHeaders(apiKey: string) {
+  return {
+    "Content-Type": "application/json; charset=utf-8",
+    Authorization: `Key ${apiKey}`,
+  };
+}
+
+/** Resolve live web-push subscription IDs for an external user id. */
+async function resolveOneSignalSubscriptionIds(
+  appId: string,
+  apiKey: string,
+  externalUserId: string,
+  preferredId?: string
+): Promise<string[]> {
+  const ids = new Set<string>();
+  if (preferredId) ids.add(String(preferredId));
+
+  try {
+    const res = await fetch(
+      `https://api.onesignal.com/apps/${appId}/users/by/external_id/${encodeURIComponent(externalUserId)}`,
+      { headers: await onesignalHeaders(apiKey) }
+    );
+    const text = await res.text();
+    console.log("OneSignal lookup user:", res.status, text.slice(0, 800));
+    if (res.ok) {
+      const data = JSON.parse(text);
+      const subs = data?.subscriptions || data?.user?.subscriptions || [];
+      for (const sub of subs) {
+        const type = String(sub?.type || sub?.device_type || "").toLowerCase();
+        const enabled = sub?.enabled !== false && sub?.invalid_identifier !== true;
+        const id = sub?.id || sub?.subscription_id;
+        // ChromePush / FirefoxPush / SafariPush / etc.
+        if (id && enabled && (type.includes("push") || type.includes("chrome") || type.includes("firefox") || type.includes("safari") || !type)) {
+          ids.add(String(id));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("OneSignal user lookup failed:", (err as Error).message);
+  }
+
+  return [...ids];
+}
+
 async function sendOneSignalPush(payload: {
   externalUserId: string;
   subscriptionId?: string;
@@ -78,9 +122,20 @@ async function sendOneSignalPush(payload: {
   const rawKey = Deno.env.get("ONESIGNAL_API_KEY") || "";
   const apiKey = rawKey.replace(/^(Key|Basic)\s+/i, "").trim();
   if (!appId || !apiKey || !payload.externalUserId) {
-    console.warn("OneSignal skipped: missing appId/apiKey/externalUserId");
+    console.warn("OneSignal skipped: missing appId/apiKey/externalUserId", {
+      hasAppId: Boolean(appId),
+      hasKey: Boolean(apiKey),
+      externalUserId: payload.externalUserId,
+    });
     return { skipped: true, channel: "push" };
   }
+
+  const subscriptionIds = await resolveOneSignalSubscriptionIds(
+    appId,
+    apiKey,
+    String(payload.externalUserId),
+    payload.subscriptionId
+  );
 
   const baseBody = {
     app_id: appId,
@@ -89,17 +144,16 @@ async function sendOneSignalPush(payload: {
     contents: { en: payload.message },
     url: payload.bookingUrl,
     web_url: payload.bookingUrl,
-    chrome_web_icon: `${(Deno.env.get("APP_URL") || "https://www.studio8teen.org").replace(/\/$/, "")}/favicon.jpg`,
   };
 
   const attempts: { name: string; body: Record<string, unknown> }[] = [];
 
-  if (payload.subscriptionId) {
+  if (subscriptionIds.length) {
     attempts.push({
       name: "include_subscription_ids",
       body: {
         ...baseBody,
-        include_subscription_ids: [String(payload.subscriptionId)],
+        include_subscription_ids: subscriptionIds,
       },
     });
   }
@@ -125,17 +179,37 @@ async function sendOneSignalPush(payload: {
   for (const attempt of attempts) {
     const res = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        Authorization: `Key ${apiKey}`,
-      },
+      headers: await onesignalHeaders(apiKey),
       body: JSON.stringify(attempt.body),
     });
     const detail = await res.text();
-    console.log(`OneSignal ${attempt.name}:`, res.status, detail.slice(0, 500));
+    console.log(`OneSignal ${attempt.name}:`, res.status, detail.slice(0, 800));
 
     if (!res.ok) {
       lastError = `${attempt.name} ${res.status}: ${detail}`;
+      // Retry once with Basic auth for older keys
+      if (res.status === 401 || res.status === 403) {
+        const basicRes = await fetch("https://api.onesignal.com/notifications", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            Authorization: `Basic ${apiKey}`,
+          },
+          body: JSON.stringify(attempt.body),
+        });
+        const basicDetail = await basicRes.text();
+        console.log(`OneSignal ${attempt.name} Basic retry:`, basicRes.status, basicDetail.slice(0, 500));
+        if (basicRes.ok) {
+          try {
+            const parsed = JSON.parse(basicDetail);
+            if (Number(parsed?.recipients || 0) > 0) {
+              return { ok: true, channel: "push", method: `${attempt.name}+Basic`, recipients: parsed.recipients, id: parsed.id };
+            }
+          } catch {
+            /* continue */
+          }
+        }
+      }
       continue;
     }
 
@@ -147,9 +221,9 @@ async function sendOneSignalPush(payload: {
       }
       const recipients = Number(parsed?.recipients ?? 0);
       if (recipients > 0) {
-        return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id };
+        return { ok: true, channel: "push", method: attempt.name, recipients, id: parsed.id, subscriptionIds };
       }
-      lastError = `${attempt.name} returned 0 recipients`;
+      lastError = `${attempt.name} returned 0 recipients; ids=${JSON.stringify(subscriptionIds)}`;
     } catch {
       return { ok: true, channel: "push", method: attempt.name, raw: detail };
     }
@@ -205,26 +279,39 @@ Deno.serve(async (req) => {
 
     const { data: rows, error: loadError } = await supabase
       .from("bookings")
-      .select("id, client_id, event_date, time_slot, packages(name), profiles:client_id(full_name, email, onesignal_subscription_id)")
+      .select("id, client_id, event_date, time_slot, packages(name)")
       .in("id", ids);
     if (loadError) throw loadError;
+
+    const clientIds = [...new Set((rows || []).map((r) => r.client_id).filter(Boolean))];
+    let profilesById: Record<string, { full_name?: string; email?: string; onesignal_subscription_id?: string }> = {};
+    if (clientIds.length) {
+      const { data: profiles, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, onesignal_subscription_id")
+        .in("id", clientIds);
+      if (profileError) console.warn("profile load:", profileError.message);
+      profilesById = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
+    }
 
     const actionById = Object.fromEntries(
       incoming.map((b: AffectedBooking) => [b.id, b.action || "affected"])
     );
 
-    const bookings = (rows || []).map((r) => ({
-      id: r.id,
-      clientId: r.client_id,
-      clientEmail: (r.profiles as { email?: string } | null)?.email || "",
-      clientName: (r.profiles as { full_name?: string } | null)?.full_name || "there",
-      packageName: (r.packages as { name?: string } | null)?.name || "photography",
-      date: r.event_date,
-      time: r.time_slot,
-      action: actionById[r.id] || "affected",
-      subscriptionId:
-        (r.profiles as { onesignal_subscription_id?: string } | null)?.onesignal_subscription_id || "",
-    }));
+    const bookings = (rows || []).map((r) => {
+      const profile = profilesById[r.client_id] || {};
+      return {
+        id: r.id,
+        clientId: r.client_id,
+        clientEmail: profile.email || "",
+        clientName: profile.full_name || "there",
+        packageName: (r.packages as { name?: string } | null)?.name || "photography",
+        date: r.event_date,
+        time: r.time_slot,
+        action: actionById[r.id] || "affected",
+        subscriptionId: profile.onesignal_subscription_id || "",
+      };
+    });
 
     if (!bookings.length) return jsonResponse({ ok: true, notified: 0 });
 
