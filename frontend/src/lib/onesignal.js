@@ -216,10 +216,14 @@ export async function initOneSignal(userId) {
 export function shouldShowPushPrompt(userId) {
   if (!userId || typeof window === "undefined") return false;
   if (typeof Notification === "undefined") return false;
-  if (nativePermission() === "denied") return false;
   if (hasAcceptedPushPrompt(userId)) return false;
   if (hasDismissedPushPrompt(userId)) return false;
+  // Show even when denied — we explain how to re-enable in browser settings
   return true;
+}
+
+export function isPushPermissionDenied() {
+  return typeof Notification !== "undefined" && Notification.permission === "denied";
 }
 
 /**

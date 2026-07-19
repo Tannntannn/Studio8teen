@@ -8,12 +8,14 @@ import {
   acceptPushNotifications,
   markPushDismissed,
   clearPushPromptFlags,
+  isPushPermissionDenied,
 } from "../../lib/onesignal";
 
 const ClientLayout = ({ children }) => {
   const { user } = useAuth();
   const [pushToast, setPushToast] = useState(null);
   const [showPushModal, setShowPushModal] = useState(false);
+  const [pushDenied, setPushDenied] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
 
   const showToast = ({ title, body, url }) => {
@@ -42,12 +44,14 @@ const ClientLayout = ({ children }) => {
     clearPushPromptFlags(user.id);
 
     const timer = window.setTimeout(() => {
+      const denied = isPushPermissionDenied();
       const show = shouldShowPushPrompt(user.id);
       console.info("Push prompt check:", {
         userId: user.id,
         show,
         permission: typeof Notification !== "undefined" ? Notification.permission : "n/a",
       });
+      setPushDenied(denied);
       setShowPushModal(show);
     }, 600);
 
@@ -108,10 +112,26 @@ const ClientLayout = ({ children }) => {
                 id="push-allow-title"
                 className="text-xl font-semibold text-[#5B4636]"
               >
-                Allow to receive notifications?
+                {pushDenied
+                  ? "Notifications are blocked"
+                  : "Allow to receive notifications?"}
               </h2>
               <p className="mt-2 text-sm text-gray-600">
-                Get alerts when your booking is confirmed, rescheduled, or cancelled.
+                {pushDenied ? (
+                  <>
+                    Chrome blocked alerts for this site. To turn them back on:
+                    <br />
+                    <span className="mt-2 block text-left">
+                      1. Click the lock icon left of the URL
+                      <br />
+                      2. Open Site settings → Notifications
+                      <br />
+                      3. Set to <strong>Allow</strong>, then reload
+                    </span>
+                  </>
+                ) : (
+                  "Get alerts when your booking is confirmed, rescheduled, or cancelled."
+                )}
               </p>
               <div className="mt-6 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                 <button
@@ -120,16 +140,18 @@ const ClientLayout = ({ children }) => {
                   disabled={pushBusy}
                   className="px-4 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50"
                 >
-                  Not now
+                  {pushDenied ? "OK" : "Not now"}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleAllowPush}
-                  disabled={pushBusy}
-                  className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#A98B75] text-white hover:bg-[#8a7260] disabled:opacity-60"
-                >
-                  {pushBusy ? "Enabling…" : "Allow"}
-                </button>
+                {!pushDenied && (
+                  <button
+                    type="button"
+                    onClick={handleAllowPush}
+                    disabled={pushBusy}
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#A98B75] text-white hover:bg-[#8a7260] disabled:opacity-60"
+                  >
+                    {pushBusy ? "Enabling…" : "Allow"}
+                  </button>
+                )}
               </div>
             </div>
           </div>
