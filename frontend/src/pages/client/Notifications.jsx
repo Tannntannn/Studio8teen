@@ -42,12 +42,16 @@ export default function Notifications() {
   const handleEnablePush = async () => {
     if (!user?.id) return;
     const ok = await enablePushNotifications(user.id);
+    const granted =
+      typeof Notification !== "undefined" && Notification.permission === "granted";
     Swal.fire({
       icon: ok ? "success" : "warning",
-      title: ok ? "Push enabled" : "Permission needed",
+      title: ok ? "Push enabled" : granted ? "Push token missing" : "Permission needed",
       text: ok
         ? "This browser is subscribed. Reschedule a booking as admin to test."
-        : "Allow notifications for studio8teen.org in your browser settings, then try again.",
+        : granted
+          ? "Permission is on, but no push token yet. Clear site data for studio8teen.org, reload, then Enable push alerts again."
+          : "Allow notifications for studio8teen.org in your browser settings, then try again.",
       timer: ok ? 2800 : undefined,
       showConfirmButton: !ok,
     });
