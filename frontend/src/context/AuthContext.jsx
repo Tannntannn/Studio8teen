@@ -52,13 +52,13 @@ export function AuthProvider({ children }) {
       }
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchProfile(session.user.id);
-        if (event === "SIGNED_IN") {
-          // Right after login click — browser allows the permission dialog
-          void initOneSignal(session.user.id, { forcePrompt: true });
-        } else if (event === "INITIAL_SESSION" || event === "USER_UPDATED") {
-          void initOneSignal(session.user.id, { forcePrompt: false });
-        }
+        fetchProfile(session.user.id).then((p) => {
+          if (event === "SIGNED_IN") {
+            void initOneSignal(session.user.id, { forcePrompt: p?.role !== "admin" });
+          } else if (event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+            void initOneSignal(session.user.id, { forcePrompt: false });
+          }
+        });
       } else {
         setProfile(null);
         if (event === "SIGNED_OUT") void logoutOneSignal();
@@ -90,8 +90,16 @@ export function AuthProvider({ children }) {
       throw new Error("Please confirm your email before logging in.");
     }
     if (data.user) {
-      await fetchProfile(data.user.id);
-      void initOneSignal(data.user.id, { forcePrompt: true });
+      const p = await fetchProfile(data.user.id);
+      try {
+        if (typeof sessionStorage !== "undefined") {
+          sessionStorage.removeItem("studiobook_push_prompted");
+        }
+      } catch {
+        /* ignore */
+      }
+      // Clients: show Allow notifications popup on login (desktop + phone)
+      void initOneSignal(data.user.id, { forcePrompt: p?.role !== "admin" });
     }
     return data;
   };

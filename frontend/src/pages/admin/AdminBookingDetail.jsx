@@ -181,16 +181,12 @@ export default function AdminBookingDetail() {
     });
     if (!isConfirmed || !formValues) return;
     try {
-      const result = await rescheduleBooking(id, formValues);
-      const push = result?.notifyResult?.result?.results?.[0]?.channels?.push;
-      const pushOk = push?.ok === true || Boolean(push?.id);
+      await rescheduleBooking(id, formValues);
       Swal.fire({
         icon: "success",
         title: "Booking rescheduled",
-        text: pushOk
-          ? "Client has been notified."
-          : "Booking updated. Email and in-app notification sent.",
-        timer: 2800,
+        text: "Client has been notified.",
+        timer: 2200,
         showConfirmButton: false,
       });
       load();

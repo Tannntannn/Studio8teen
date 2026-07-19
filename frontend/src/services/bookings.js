@@ -269,13 +269,14 @@ export async function rescheduleBooking(id, { event_date, time_slot, note }) {
 
   const [withProfile] = await attachProfiles([updated]);
   const reason = `Your booking has been rescheduled to ${event_date} at ${time_slot}${note ? `. ${note}` : ""}`;
-  const notifyResult = await notifyAffectedClients(
+  // Fire-and-forget so admin UI returns immediately
+  void notifyAffectedClients(
     [normalizeAffectedBooking(withProfile, "rescheduled")],
     reason,
     { action: "rescheduled", createInApp: true }
   );
 
-  return { booking: withProfile, notified: 1, notifyResult };
+  return { booking: withProfile, notified: 1 };
 }
 
 export async function getClientBookings(clientId) {
