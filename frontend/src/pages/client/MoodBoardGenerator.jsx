@@ -150,7 +150,10 @@ export default function MoodBoardGenerator() {
               </select>
               {prefs.eventType && !noImagesForEvent && (
                 <p className="text-xs text-gray-400 mt-1.5">
-                  {candidateImageCount} inspiration photo{candidateImageCount !== 1 ? "s" : ""} available for {prefs.eventType}.
+                  Your mood board will always show 5 photos
+                  {candidateImageCount < 5
+                    ? ` (${candidateImageCount} tagged for ${prefs.eventType}; extras filled from the studio library).`
+                    : ` from the best matches for ${prefs.eventType}.`}
                 </p>
               )}
               {noImagesForEvent && (

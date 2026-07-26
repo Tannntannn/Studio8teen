@@ -79,14 +79,9 @@ function rankByFrequency(arrays, limit, transform = (x) => x) {
   return order.sort((a, b) => counts.get(b) - counts.get(a)).slice(0, limit);
 }
 
-/**
- * Build candidate images for an event type. Each image carries a reference to
- * its parent theme so it can be scored and used for recommendations.
- */
-export function buildCandidateImages(themes, eventType) {
-  const matching = filterThemesByEvent(themes, eventType);
-  const candidates = [];
-  matching.forEach((theme, themeIndex) => {
+function pushThemeImages(candidates, themes, { preferEventType = "" } = {}) {
+  const list = Array.isArray(themes) ? themes : [];
+  list.forEach((theme, themeIndex) => {
     (theme.inspiration_images || []).forEach((img, imgIndex) => {
       if (!img?.url) return;
       candidates.push({
@@ -96,12 +91,28 @@ export function buildCandidateImages(themes, eventType) {
         themeId: theme.id,
         themeName: theme.name,
         theme,
+        preferEventType: Boolean(preferEventType),
         // Stable tie-breaker: theme sort order, then upload order within a theme.
         order: (theme.sort_order || themeIndex) * 1000 + imgIndex,
       });
     });
   });
   return candidates;
+}
+
+/**
+ * Build candidate images for an event type. Each image carries a reference to
+ * its parent theme so it can be scored and used for recommendations.
+ */
+export function buildCandidateImages(themes, eventType) {
+  return pushThemeImages([], filterThemesByEvent(themes, eventType), {
+    preferEventType: eventType,
+  });
+}
+
+/** All inspiration images across themes (used to pad to exactly 5). */
+export function buildAllCandidateImages(themes) {
+  return pushThemeImages([], themes);
 }
 
 /** Score a single candidate image against the client's preferences. */
@@ -162,7 +173,54 @@ function buildDescription(prefs, selectedCount) {
 }
 
 /**
+ * Pick exactly `topN` images: best matches for the event first, then pad from
+ * the rest of the studio library so the mood board always shows 5 photos.
+ */
+function selectExactTop(themes, prefs, topN) {
+  const primary = buildCandidateImages(themes, prefs.eventType)
+    .map((candidate) => scoreCandidate(candidate, prefs))
+    .sort((a, b) => b.score - a.score || a.order - b.order);
+
+  const selected = [];
+  const seen = new Set();
+  const library = buildAllCandidateImages(themes);
+
+  const take = (list) => {
+    for (const item of list) {
+      if (selected.length >= topN) break;
+      const key = String(item.url || item.id);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      selected.push(item);
+    }
+  };
+
+  take(primary);
+
+  if (selected.length < topN) {
+    const selectedKeys = new Set(selected.map((c) => String(c.url || c.id)));
+    const fillers = library
+      .filter((c) => !selectedKeys.has(String(c.url || c.id)))
+      .map((candidate) => {
+        const scored = scoreCandidate(candidate, prefs);
+        // Fillers may be outside the chosen event — keep preference matches, drop event bonus.
+        return {
+          ...scored,
+          score: Math.max(0, scored.score - SCORE_WEIGHTS.eventType),
+          matched: scored.matched.filter((m) => m !== "Event type"),
+        };
+      })
+      .sort((a, b) => b.score - a.score || a.order - b.order);
+    take(fillers);
+  }
+
+  return { selected, primaryCount: primary.length, totalLibrary: library.length };
+}
+
+/**
  * Generate a personalized mood board.
+ * Always returns exactly `topN` images (default 5), or an error if the studio
+ * library does not have enough inspiration photos yet.
  * @returns {{ moodBoard, scoreSummary } | { error }}
  */
 export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) {
@@ -170,16 +228,20 @@ export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) 
     return { error: "Please select your event type first." };
   }
 
-  const candidates = buildCandidateImages(themes, prefs.eventType);
-  if (!candidates.length) {
-    return { error: `No inspiration images are available for ${prefs.eventType} yet. Please try another event type or contact the studio.` };
+  const { selected: top, primaryCount, totalLibrary } = selectExactTop(themes, prefs, topN);
+
+  if (!primaryCount) {
+    return {
+      error: `No inspiration images are available for ${prefs.eventType} yet. Please try another event type or contact the studio.`,
+    };
   }
 
-  const scored = candidates
-    .map((candidate) => scoreCandidate(candidate, prefs))
-    .sort((a, b) => b.score - a.score || a.order - b.order);
+  if (top.length < topN) {
+    return {
+      error: `A mood board needs ${topN} photos, but only ${totalLibrary} inspiration image${totalLibrary === 1 ? " is" : "s are"} in the studio library. Ask the studio to upload more Mood Board Themes.`,
+    };
+  }
 
-  const top = scored.slice(0, topN);
   const selectedThemes = top.map((c) => c.theme);
 
   const colorPalette = rankByFrequency(
@@ -230,8 +292,9 @@ export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) 
       additional_notes: "",
     },
     scoreSummary: {
-      totalCandidates: candidates.length,
+      totalCandidates: Math.max(primaryCount, totalLibrary),
       selectedCount: top.length,
+      requiredCount: topN,
       weights: SCORE_WEIGHTS,
       items: top.map((c) => ({
         id: c.id,
