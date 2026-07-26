@@ -20,7 +20,7 @@ export const SCORE_WEIGHTS = {
   photographyStyle: 3,
 };
 
-export const DEFAULT_TOP_N = 3;
+export const DEFAULT_TOP_N = 5;
 
 function norm(value) {
   return String(value || "").toLowerCase().trim();

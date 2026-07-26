@@ -76,7 +76,7 @@ export default function MoodBoardGenerator() {
 
     setGenerating(true);
     try {
-      const result = generateMoodBoard(themes, prefs, { topN: 3 });
+      const result = generateMoodBoard(themes, prefs, { topN: 5 });
       if (result.error) {
         setGenerateError(result.error);
         setGenerated(null);

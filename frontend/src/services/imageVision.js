@@ -259,7 +259,7 @@ function raceVisionProviders(urls, { onStatus, categoryOptions } = {}) {
   return Promise.any(attempts).catch(() => null);
 }
 
-export async function analyzeImagesWithVision(imageUrls, { maxImages = 1, onStatus, categoryOptions } = {}) {
+export async function analyzeImagesWithVision(imageUrls, { maxImages = 5, onStatus, categoryOptions } = {}) {
   const urls = (imageUrls || [])
     .filter(Boolean)
     .slice(-maxImages)

@@ -198,7 +198,7 @@ export default function AdminMoodBoardThemes() {
   };
 
   const runVisionAnalysis = async (urls, { overwrite = false, localPalette = null } = {}) => {
-    const analyzeUrls = (urls || []).filter(Boolean).slice(-1);
+    const analyzeUrls = (urls || []).filter(Boolean).slice(-5);
     if (!analyzeUrls.length) return;
 
     if (localPalette) {
