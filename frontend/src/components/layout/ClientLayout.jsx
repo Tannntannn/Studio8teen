@@ -7,7 +7,6 @@ import {
   shouldShowPushPrompt,
   acceptPushNotifications,
   markPushDismissed,
-  clearPushPromptFlags,
   isPushPermissionDenied,
   requestBrowserNotificationPermission,
   markPushAccepted,
@@ -36,23 +35,16 @@ const ClientLayout = ({ children }) => {
     };
   }, []);
 
-  // Show Allow notifications modal on desktop + phone when not accepted yet
+  // Show once per page load; "Not now" hides until refresh or next login
   useEffect(() => {
     if (!user?.id) {
       setShowPushModal(false);
       return;
     }
-    // Fresh login: clear "Not now" for this session so the modal can appear
-    clearPushPromptFlags(user.id);
 
     const timer = window.setTimeout(() => {
       const denied = isPushPermissionDenied();
       const show = shouldShowPushPrompt(user.id);
-      console.info("Push prompt check:", {
-        userId: user.id,
-        show,
-        permission: typeof Notification !== "undefined" ? Notification.permission : "n/a",
-      });
       setPushDenied(denied);
       setShowPushModal(show);
     }, 600);
@@ -78,15 +70,46 @@ const ClientLayout = ({ children }) => {
   const handleAllowPush = async () => {
     if (!user?.id || pushBusy) return;
     setPushBusy(true);
+
+    // Must run first — Chrome needs a direct user gesture for the permission dialog
+    const permission = await requestBrowserNotificationPermission();
+
     try {
-      const ok = await acceptPushNotifications(user.id);
-      setShowPushModal(false);
-      if (!ok && typeof Notification !== "undefined" && Notification.permission === "denied") {
+      if (permission === "denied") {
+        setPushDenied(true);
         showToast({
           title: "Notifications blocked",
           body: "Enable notifications for www.studio8teen.org in your browser settings.",
           url: "/client-notifications",
         });
+        return;
+      }
+
+      const ok = await Promise.race([
+        acceptPushNotifications(user.id),
+        new Promise((resolve) => setTimeout(() => resolve(permission === "granted"), 10000)),
+      ]);
+
+      if (ok || permission === "granted") {
+        markPushAccepted(user.id);
+        setShowPushModal(false);
+        showToast({
+          title: "Notifications enabled",
+          body: "You’ll get alerts when your booking is updated.",
+          url: "/client-notifications",
+        });
+      } else {
+        setShowPushModal(false);
+        showToast({
+          title: "Couldn’t enable push",
+          body: "Allow notifications when the browser asks, or check site settings.",
+        });
+      }
+    } catch (err) {
+      console.warn("handleAllowPush:", err?.message || err);
+      if (permission === "granted") {
+        markPushAccepted(user.id);
+        setShowPushModal(false);
       }
     } finally {
       setPushBusy(false);

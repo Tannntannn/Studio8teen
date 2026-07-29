@@ -21,7 +21,6 @@ import ClientGallery from "./pages/client/ClientGallery";
 import Notifications from "./pages/client/Notifications";
 import Profile from "./pages/client/Profile";
 import CalendarPage from "./pages/client/Calendar";
-import MoodBoard from "./pages/client/MoodBoard";
 import MoodBoardGenerator from "./pages/client/MoodBoardGenerator";
 import PoseGallery from "./pages/client/PoseGallery";
 
@@ -70,7 +69,6 @@ function AppRoutes() {
         <Route path="/mood-board-generator" element={<Navigate to="/client-mood-board" replace />} />
         <Route path="/client/mood-board" element={<Navigate to="/client-mood-board" replace />} />
         <Route path="/client-bookings" element={<ProtectedRoute role="client"><Bookings /></ProtectedRoute>} />
-        <Route path="/client-bookings/:id/mood-board" element={<ProtectedRoute role="client"><MoodBoard /></ProtectedRoute>} />
         <Route path="/client-bookings/:id" element={<ProtectedRoute role="client"><BookingDetail /></ProtectedRoute>} />
         <Route path="/create-booking" element={<ProtectedRoute role="client"><CreateBooking /></ProtectedRoute>} />
         <Route path="/client-gallery" element={<ProtectedRoute role="client"><ClientGallery /></ProtectedRoute>} />

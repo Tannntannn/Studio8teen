@@ -259,7 +259,6 @@ export const ADDONS_CATALOG = [
   { name: "Invitation layout", price: 300 },
   { name: "Damage fee", price: 300 },
   { name: "A4 frame", price: 200 },
-  { name: "Reschedule / cancellation fee", price: 100 },
   { name: "Additional 1 pax", price: 150 },
   { name: "Additional 10 minutes", price: 150 },
   { name: "4R frame", price: 100 },

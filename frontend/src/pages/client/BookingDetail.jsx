@@ -12,7 +12,6 @@ import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../l
 import { CANCELLATION_FEE } from "../../lib/constants";
 import { FaDownload, FaQrcode } from "react-icons/fa";
 import QRCode from "qrcode";
-import BookingPoseSuggestionsPanel from "../../components/booking/BookingPoseSuggestionsPanel";
 
 export default function BookingDetail() {
   const { id } = useParams();
@@ -245,17 +244,10 @@ export default function BookingDetail() {
 
           {booking.status === "confirmed" && (
             <div className="flex gap-3 justify-center">
-              <Link to={`/client-bookings/${id}/mood-board`} className="px-4 py-2 rounded-xl border border-[#A98B75] text-[#A98B75] text-sm font-medium hover:bg-[#A98B75]/10">
-                Session Mood Board
-              </Link>
               <Link to="/client-mood-board" className="px-4 py-2 rounded-xl border border-[#E8E1DA] text-[#5B4636] text-sm font-medium hover:bg-[#F8F6F3]">
                 Theme Generator
               </Link>
             </div>
-          )}
-
-          {["confirmed", "completed", "payment_submitted"].includes(booking.status) && (
-            <BookingPoseSuggestionsPanel booking={booking} canGenerate={false} />
           )}
 
           {!["cancelled", "completed", "cancellation_pending", "cancellation_submitted"].includes(booking.status) && (

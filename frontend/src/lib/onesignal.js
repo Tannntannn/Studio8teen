@@ -20,9 +20,8 @@ export function pushAcceptedKey(userId) {
   return `studiobook_push_accepted_${userId}`;
 }
 
-export function pushDismissedKey(userId) {
-  return `studiobook_push_dismissed_${userId}`;
-}
+/** In-memory only: survives SPA page changes, clears on refresh or logout */
+const dismissedPushPrompts = new Set();
 
 export function hasAcceptedPushPrompt(userId) {
   try {
@@ -33,11 +32,7 @@ export function hasAcceptedPushPrompt(userId) {
 }
 
 export function hasDismissedPushPrompt(userId) {
-  try {
-    return Boolean(userId && sessionStorage.getItem(pushDismissedKey(userId)));
-  } catch {
-    return false;
-  }
+  return Boolean(userId && dismissedPushPrompts.has(String(userId)));
 }
 
 export function markPushAccepted(userId) {
@@ -49,21 +44,15 @@ export function markPushAccepted(userId) {
 }
 
 export function markPushDismissed(userId) {
-  try {
-    if (userId) sessionStorage.setItem(pushDismissedKey(userId), "1");
-  } catch {
-    /* ignore */
-  }
+  if (userId) dismissedPushPrompts.add(String(userId));
 }
 
 export function clearPushPromptFlags(userId) {
-  try {
-    if (userId) {
-      sessionStorage.removeItem(pushDismissedKey(userId));
-    }
-  } catch {
-    /* ignore */
-  }
+  if (userId) dismissedPushPrompts.delete(String(userId));
+}
+
+export function clearAllPushDismissed() {
+  dismissedPushPrompts.clear();
 }
 
 function withTimeout(promise, ms, label = "operation") {
@@ -317,10 +306,11 @@ export async function enablePushNotifications(userId) {
 }
 
 export async function logoutOneSignal() {
+  // Always reset "Not now" so the prompt can show again after next login
+  clearAllPushDismissed();
   if (typeof window === "undefined" || !initPromise) return;
   try {
     const OneSignal = await getOneSignal();
-    if (lastLoginUserId) clearPushPromptFlags(lastLoginUserId);
     lastLoginUserId = null;
     await withTimeout(OneSignal.logout(), 3000, "OneSignal.logout").catch(() => {});
   } catch (err) {

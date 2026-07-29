@@ -7,7 +7,6 @@ import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
-import BookingPoseSuggestionsPanel from "../../components/booking/BookingPoseSuggestionsPanel";
 import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking } from "../../services/bookings";
 import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
@@ -343,10 +342,6 @@ export default function AdminBookingDetail() {
               </span>
             )}
           </div>
-        </div>
-
-        <div className="mb-6">
-          <BookingPoseSuggestionsPanel booking={booking} userId={user?.id} canGenerate />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

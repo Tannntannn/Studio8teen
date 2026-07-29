@@ -10,8 +10,8 @@ WHERE question ILIKE '%book%a session%';
 UPDATE faq_entries
 SET
   question = 'Can I cancel or reschedule my booking?',
-  answer = 'Yes. Cancellations and rescheduling are allowed. A cancellation/reschedule fee of ₱200 applies once your booking has been approved. You can request this from your booking detail page in StudioBook.',
-  keywords = ARRAY['cancel', 'cancellation', 'reschedule', 'refund', 'fee', '200']
+  answer = 'Yes. Cancellations and rescheduling are allowed. Once your booking is approved, a non-refundable ₱100 cancellation fee applies if you cancel. Rescheduling is handled by the studio and does not add a separate fee. You can request cancellation from your booking detail page in StudioBook.',
+  keywords = ARRAY['cancel', 'cancellation', 'reschedule', 'refund', 'fee', '100']
 WHERE question ILIKE '%cancel%';
 
 UPDATE faq_entries

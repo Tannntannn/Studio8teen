@@ -12,6 +12,7 @@ import {
   FaPalette,
 } from "react-icons/fa";
 import BrandLogo from "../ui/BrandLogo";
+import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
 
 const menuItems = [
@@ -27,15 +28,18 @@ const ClientSidebar = () => {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   const handleLogout = async () => {
     setLoggingOut(true);
+    setLogoutOpen(false);
     await new Promise((r) => setTimeout(r, 350));
     await signOut();
     navigate("/login", { state: { fromLogout: true } });
   };
 
   return (
+    <>
     <aside
       className={`group/sidebar fixed left-0 top-0 z-40 h-screen w-20 hover:w-72 bg-white border-r border-[#E8E1DA] flex flex-col transition-[width] duration-300 ease-in-out overflow-hidden shadow-sm ${loggingOut ? "opacity-0 transition-opacity duration-300" : ""}`}
       aria-label="Client navigation"
@@ -97,7 +101,7 @@ const ClientSidebar = () => {
       <div className="p-3 border-t border-[#E8E1DA]">
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => setLogoutOpen(true)}
           disabled={loggingOut}
           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-500 hover:bg-red-50 text-sm transition-colors"
         >
@@ -108,6 +112,19 @@ const ClientSidebar = () => {
         </button>
       </div>
     </aside>
+
+    <ConfirmModal
+      open={logoutOpen}
+      title="Log out?"
+      message="You’ll need to sign in again to access your bookings and account."
+      confirmLabel="Log out"
+      cancelLabel="Cancel"
+      variant="danger"
+      loading={loggingOut}
+      onConfirm={handleLogout}
+      onCancel={() => setLogoutOpen(false)}
+    />
+    </>
   );
 };
 

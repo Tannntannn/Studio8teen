@@ -15,6 +15,7 @@ import {
   FaPalette,
 } from "react-icons/fa";
 import BrandLogo from "../ui/BrandLogo";
+import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
 import { getUnreadPendingCount, subscribePendingBookings } from "../../services/bookings";
 
@@ -38,6 +39,7 @@ export default function AdminSidebar() {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
 
   const refreshUnread = () => {
     getUnreadPendingCount().then(setUnreadCount).catch(() => setUnreadCount(0));
@@ -50,12 +52,14 @@ export default function AdminSidebar() {
 
   const handleLogout = async () => {
     setLoggingOut(true);
+    setLogoutOpen(false);
     await new Promise((r) => setTimeout(r, 350));
     await signOut();
     navigate("/login", { state: { fromLogout: true } });
   };
 
   return (
+    <>
     <aside
       className={`group/sidebar fixed left-0 top-0 z-40 h-screen w-20 hover:w-72 bg-[#5B4636] text-white flex flex-col transition-[width] duration-300 ease-in-out overflow-hidden shadow-lg ${loggingOut ? "opacity-0 transition-opacity duration-300" : ""}`}
       aria-label="Admin navigation"
@@ -100,7 +104,7 @@ export default function AdminSidebar() {
       <div className="p-3 border-t border-white/10">
         <button
           type="button"
-          onClick={handleLogout}
+          onClick={() => setLogoutOpen(true)}
           disabled={loggingOut}
           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-300 hover:bg-white/10 text-sm transition-colors"
         >
@@ -111,5 +115,18 @@ export default function AdminSidebar() {
         </button>
       </div>
     </aside>
+
+    <ConfirmModal
+      open={logoutOpen}
+      title="Log out?"
+      message="You’ll need to sign in again to access the admin portal."
+      confirmLabel="Log out"
+      cancelLabel="Cancel"
+      variant="danger"
+      loading={loggingOut}
+      onConfirm={handleLogout}
+      onCancel={() => setLogoutOpen(false)}
+    />
+    </>
   );
 }
