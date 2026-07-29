@@ -257,7 +257,6 @@ export const ADDONS_CATALOG = [
   { name: "16 GB Flashdrive", price: 1000 },
   { name: "A4 sintraboard", price: 300 },
   { name: "Invitation layout", price: 300 },
-  { name: "Damage fee", price: 300 },
   { name: "A4 frame", price: 200 },
   { name: "Additional 1 pax", price: 150 },
   { name: "Additional 10 minutes", price: 150 },
