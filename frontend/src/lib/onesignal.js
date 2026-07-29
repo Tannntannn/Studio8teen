@@ -66,6 +66,16 @@ export function clearPushPromptFlags(userId) {
   }
 }
 
+function withTimeout(promise, ms, label = "operation") {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 async function getOneSignal() {
   if (!OneSignalMod) {
     OneSignalMod = (await import("react-onesignal")).default;
@@ -95,7 +105,7 @@ async function ensureInit() {
     });
   }
 
-  await initPromise;
+  await withTimeout(initPromise, 8000, "OneSignal.init");
   bindListeners(OneSignal);
   return OneSignal;
 }
@@ -125,20 +135,27 @@ function nativePermission() {
 }
 
 async function optInPush(OneSignal) {
-  if (typeof OneSignal.User?.PushSubscription?.optIn === "function") {
-    await OneSignal.User.PushSubscription.optIn();
+  if (typeof OneSignal.User?.PushSubscription?.optIn !== "function") return;
+  try {
+    await withTimeout(OneSignal.User.PushSubscription.optIn(), 5000, "PushSubscription.optIn");
+  } catch (err) {
+    console.warn("OneSignal optIn:", err?.message || err);
   }
 }
 
-async function requestNativePermission(OneSignal) {
-  if (typeof OneSignal.Notifications?.requestPermission === "function") {
-    await OneSignal.Notifications.requestPermission();
-  } else if (typeof Notification !== "undefined" && Notification.requestPermission) {
-    await Notification.requestPermission();
+/** Call from a click handler BEFORE any other awaits to keep the user gesture. */
+export async function requestBrowserNotificationPermission() {
+  if (typeof Notification === "undefined") return "denied";
+  if (Notification.permission !== "default") return Notification.permission;
+  try {
+    const result = await Notification.requestPermission();
+    return result || Notification.permission;
+  } catch {
+    return Notification.permission;
   }
 }
 
-async function waitForSubscription(OneSignal, attempts = 12) {
+async function waitForSubscription(OneSignal, attempts = 6) {
   for (let i = 0; i < attempts; i++) {
     const sub = OneSignal.User?.PushSubscription;
     if (sub?.id && sub?.optedIn) {
@@ -148,7 +165,7 @@ async function waitForSubscription(OneSignal, attempts = 12) {
         optedIn: true,
       };
     }
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 350));
   }
   const sub = OneSignal.User?.PushSubscription;
   return {
@@ -161,10 +178,14 @@ async function waitForSubscription(OneSignal, attempts = 12) {
 async function persistSubscriptionId(userId, subscriptionId) {
   if (!userId || !subscriptionId) return subscriptionId;
   try {
-    await supabase
-      .from("profiles")
-      .update({ onesignal_subscription_id: String(subscriptionId) })
-      .eq("id", userId);
+    await withTimeout(
+      supabase
+        .from("profiles")
+        .update({ onesignal_subscription_id: String(subscriptionId) })
+        .eq("id", userId),
+      4000,
+      "persistSubscriptionId"
+    );
   } catch (err) {
     console.warn("Could not save OneSignal subscription id:", err?.message || err);
   }
@@ -184,10 +205,13 @@ export async function initOneSignal(userId) {
       const OneSignal = await ensureInit();
       if (!OneSignal) return;
 
-      await OneSignal.login(String(userId));
+      try {
+        await withTimeout(OneSignal.login(String(userId)), 5000, "OneSignal.login");
+      } catch (err) {
+        console.warn("OneSignal.login:", err?.message || err);
+      }
       lastLoginUserId = String(userId);
 
-      // Only auto-opt-in if user already accepted our Allow prompt
       if (hasAcceptedPushPrompt(userId) && nativePermission() === "granted") {
         await optInPush(OneSignal);
         const push = await waitForSubscription(OneSignal);
@@ -218,7 +242,6 @@ export function shouldShowPushPrompt(userId) {
   if (typeof Notification === "undefined") return false;
   if (hasAcceptedPushPrompt(userId)) return false;
   if (hasDismissedPushPrompt(userId)) return false;
-  // Show even when denied — we explain how to re-enable in browser settings
   return true;
 }
 
@@ -227,34 +250,59 @@ export function isPushPermissionDenied() {
 }
 
 /**
- * User clicked Allow on our modal — request browser permission + opt in.
- * Must be called from a click handler (user gesture) for desktop Chrome.
+ * User clicked Allow — permission should already be requested in the click handler.
+ * Completes OneSignal login/opt-in with timeouts so the UI never hangs.
  */
 export async function acceptPushNotifications(userId) {
   if (!userId) return false;
   try {
-    const OneSignal = await ensureInit();
-    if (!OneSignal) return false;
-
-    await OneSignal.login(String(userId));
-    lastLoginUserId = String(userId);
-
+    // If permission still default (caller forgot to request), try once more
     if (nativePermission() === "default") {
-      await requestNativePermission(OneSignal);
+      await requestBrowserNotificationPermission();
     }
 
     if (nativePermission() === "denied") {
       return false;
     }
 
-    await optInPush(OneSignal);
+    const OneSignal = await ensureInit();
+    if (!OneSignal) {
+      // Permission may still be granted — treat as partial success
+      if (nativePermission() === "granted") {
+        markPushAccepted(userId);
+        return true;
+      }
+      return false;
+    }
+
+    try {
+      await withTimeout(OneSignal.login(String(userId)), 5000, "OneSignal.login");
+    } catch (err) {
+      console.warn("OneSignal.login during accept:", err?.message || err);
+    }
+    lastLoginUserId = String(userId);
+
+    if (nativePermission() === "granted") {
+      await optInPush(OneSignal);
+    }
+
     const push = await waitForSubscription(OneSignal);
     if (push.id) await persistSubscriptionId(userId, push.id);
 
-    markPushAccepted(userId);
-    return nativePermission() === "granted";
+    // Close the loop once browser permission is granted, even if OneSignal id lags
+    if (nativePermission() === "granted") {
+      markPushAccepted(userId);
+      return true;
+    }
+
+    return false;
   } catch (err) {
     console.warn("acceptPushNotifications:", err?.message || err);
+    // Don't leave the user stuck — if they already allowed in the browser, count it
+    if (nativePermission() === "granted") {
+      markPushAccepted(userId);
+      return true;
+    }
     return false;
   }
 }
@@ -263,6 +311,8 @@ export async function acceptPushNotifications(userId) {
 export async function enablePushNotifications(userId) {
   if (!userId) return false;
   clearPushPromptFlags(userId);
+  // Request permission first while we still have a user gesture from the click
+  await requestBrowserNotificationPermission();
   return acceptPushNotifications(userId);
 }
 
@@ -272,7 +322,7 @@ export async function logoutOneSignal() {
     const OneSignal = await getOneSignal();
     if (lastLoginUserId) clearPushPromptFlags(lastLoginUserId);
     lastLoginUserId = null;
-    await OneSignal.logout();
+    await withTimeout(OneSignal.logout(), 3000, "OneSignal.logout").catch(() => {});
   } catch (err) {
     console.warn("OneSignal logout skipped:", err?.message || err);
   }
