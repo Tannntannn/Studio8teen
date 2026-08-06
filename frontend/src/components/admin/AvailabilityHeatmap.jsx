@@ -104,24 +104,24 @@ function DayRow({ day, month, timeSlots, getCell, past, busy, popping, onToggleS
         past ? "border-[#E8E1DA]/60 bg-[#F8F6F3]/50" : "border-[#E8E1DA] bg-white hover:border-[#A98B75]/30"
       }`}
     >
-      <div className="flex flex-wrap items-start gap-3 sm:gap-4">
+      <div className="flex flex-wrap items-start gap-3 sm:gap-4 justify-center sm:justify-start">
         <div className={`flex-shrink-0 w-14 text-center ${past ? "text-gray-400" : "text-[#5B4636]"}`}>
           <p className="text-xl font-bold leading-none">{day}</p>
           <p className="text-[10px] uppercase tracking-wide mt-1 text-gray-400">{weekday}</p>
           {past && <p className="text-[9px] text-gray-300 mt-0.5">Past</p>}
         </div>
 
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 space-y-3 text-center sm:text-left">
           {amSlots.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Morning (AM)</p>
-              <div className="flex flex-wrap gap-1.5">{amSlots.map(renderSlot)}</div>
+              <div className="flex flex-wrap justify-center sm:justify-start gap-1.5">{amSlots.map(renderSlot)}</div>
             </div>
           )}
           {pmSlots.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Afternoon (PM)</p>
-              <div className="flex flex-wrap gap-1.5">{pmSlots.map(renderSlot)}</div>
+              <div className="flex flex-wrap justify-center sm:justify-start gap-1.5">{pmSlots.map(renderSlot)}</div>
             </div>
           )}
         </div>
