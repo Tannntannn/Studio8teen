@@ -20,6 +20,27 @@ export function availabilityHeatLabel(ratio) {
   return "Partial";
 }
 
+/** Minimal admin heatmap dot colors (no text in cell) */
+export function heatmapCellClass(status, { past = false, updating = false } = {}) {
+  const base = {
+    available: "bg-emerald-400",
+    partial: "bg-amber-400",
+    full: "bg-red-500",
+    closed: "bg-gray-200",
+  }[status] || "bg-gray-100";
+  const pastCls = past ? "opacity-50 cursor-default" : "";
+  const pop = updating ? "avail-cell-pop" : "";
+  return `${base} ${pastCls} ${pop}`.trim();
+}
+
+export function heatmapCellTitle(date, slot, cell, status) {
+  const time = slot;
+  if (!cell || status === "closed") return `${date} · Closed`;
+  if (status === "full") return `${date} · Booked (${cell.booked_count}/${cell.capacity})`;
+  if (status === "partial") return `${date} · ${cell.booked_count}/${cell.capacity} booked`;
+  return `${date} · Open — click to close`;
+}
+
 /** Derive slot status from availability row */
 export function getSlotStatus(slot) {
   if (!slot || slot.is_enabled === false) return "closed";

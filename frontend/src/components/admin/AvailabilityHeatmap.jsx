@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Swal from "sweetalert2";
+import { FaLockOpen, FaLock } from "react-icons/fa";
 import {
   ensureMonthAvailability,
   getTimeSlots,
@@ -11,50 +12,32 @@ import {
 } from "../../services/settings";
 import { DEFAULT_SLOT_CAPACITY } from "../../lib/constants";
 import { formatTime12h, formatTime12hCompact, isAmSlot, localDateISO } from "../../lib/dateUtils";
+import { getSlotStatus, heatmapCellClass } from "../../lib/availabilityUtils";
 
 const LEGEND = [
-  { label: "Available", className: "bg-green-200 border-green-400" },
-  { label: "Partial", className: "bg-amber-200 border-amber-400" },
-  { label: "Full", className: "bg-red-200 border-red-400" },
-  { label: "Closed", className: "bg-gray-200 border-gray-300" },
-  { label: "Past (view only)", className: "bg-slate-100 border-slate-300" },
+  { label: "Open", className: "bg-emerald-400" },
+  { label: "Limited", className: "bg-amber-400" },
+  { label: "Booked", className: "bg-red-500" },
+  { label: "Closed", className: "bg-gray-200" },
 ];
-
-function cellStyle(cell, isPast) {
-  const base =
-    !cell || cell.is_enabled === false
-      ? "bg-gray-200 border-gray-300 text-gray-500"
-      : cell.booked_count >= cell.capacity
-        ? "bg-red-200 border-red-400 text-red-800"
-        : cell.booked_count > 0
-          ? "bg-amber-200 border-amber-400 text-amber-900"
-          : "bg-green-200 border-green-400 text-green-900";
-  return isPast ? `${base} opacity-70 cursor-default` : base;
-}
-
-function cellLabel(cell) {
-  if (!cell || cell.is_enabled === false) return "Closed";
-  if (cell.booked_count >= cell.capacity) return `Full ${cell.booked_count}/${cell.capacity}`;
-  if (cell.booked_count > 0) return `${cell.booked_count}/${cell.capacity}`;
-  return `Open ${cell.capacity}`;
-}
-
-function cellStatus(cell) {
-  if (!cell || cell.is_enabled === false) return "closed";
-  if (cell.booked_count >= cell.capacity) return "full";
-  if (cell.booked_count > 0) return "partial";
-  return "available";
-}
 
 function toastAffected(count) {
   if (!count) return;
   Swal.fire({
     icon: "info",
     title: "Clients notified",
-    text: `${count} confirmed booking${count === 1 ? " was" : "s were"} affected. Clients have been notified.`,
-    timer: 3200,
+    text: `${count} confirmed booking${count === 1 ? " was" : "s were"} affected.`,
+    timer: 2800,
     showConfirmButton: false,
   });
+}
+
+function upsertRow(rows, row) {
+  const idx = rows.findIndex((r) => r.avail_date === row.avail_date && r.time_slot === row.time_slot);
+  if (idx === -1) return [...rows, row];
+  const next = [...rows];
+  next[idx] = { ...next[idx], ...row };
+  return next;
 }
 
 export default function AvailabilityHeatmap({ compact = false }) {
@@ -64,54 +47,74 @@ export default function AvailabilityHeatmap({ compact = false }) {
   });
   const [timeSlots, setTimeSlots] = useState([]);
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [busy, setBusy] = useState(null);
+  const [popping, setPopping] = useState(null);
+  const skipSyncUntil = useRef(0);
   const today = localDateISO();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const slots = await getTimeSlots();
-      setTimeSlots(slots);
-      await syncMonthAvailability(month);
-      const rows = await ensureMonthAvailability(month, slots);
-      setData(rows);
-    } catch (err) {
-      console.error("Availability load failed:", err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [month]);
+  const refresh = useCallback(
+    async ({ silent = false } = {}) => {
+      if (silent && Date.now() < skipSyncUntil.current) return;
+      try {
+        const slots = await getTimeSlots();
+        setTimeSlots(slots);
+        await syncMonthAvailability(month);
+        const rows = await ensureMonthAvailability(month, slots);
+        setData(rows);
+      } catch (err) {
+        console.error("Availability load failed:", err.message);
+      } finally {
+        if (!silent) setInitialLoading(false);
+      }
+    },
+    [month]
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    setInitialLoading(true);
+    refresh({ silent: false });
+  }, [refresh]);
 
   useEffect(() => {
-    const unsubA = subscribeAvailability(load);
-    const unsubB = subscribeBookings(load);
+    const silent = () => refresh({ silent: true });
+    const unsubA = subscribeAvailability(silent);
+    const unsubB = subscribeBookings(silent);
     return () => {
       unsubA();
       unsubB();
     };
-  }, [load]);
+  }, [refresh]);
 
   const daysInMonth = (() => {
     const [y, m] = month.split("-").map(Number);
     return new Date(y, m, 0).getDate();
   })();
 
-  const amSlots = timeSlots.filter((s) => isAmSlot(s));
-  const pmSlots = timeSlots.filter((s) => !isAmSlot(s));
-
   const getCell = (day, slot) => {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     return data.find((d) => d.avail_date === date && d.time_slot === slot);
   };
 
-  const isPastDate = (day) => {
-    const date = `${month}-${String(day).padStart(2, "0")}`;
-    return date < today;
+  const isPastDate = (day) => `${month}-${String(day).padStart(2, "0")}` < today;
+
+  const flashCell = (key) => {
+    setPopping(key);
+    window.setTimeout(() => setPopping((k) => (k === key ? null : k)), 280);
+  };
+
+  const patchCell = (date, slot, patch) => {
+    setData((prev) => {
+      const existing = prev.find((r) => r.avail_date === date && r.time_slot === slot);
+      const base = existing || {
+        avail_date: date,
+        time_slot: slot,
+        capacity: DEFAULT_SLOT_CAPACITY,
+        booked_count: 0,
+        is_enabled: true,
+      };
+      return upsertRow(prev, { ...base, ...patch });
+    });
   };
 
   const handleCellClick = async (day, slot) => {
@@ -119,39 +122,34 @@ export default function AvailabilityHeatmap({ compact = false }) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const cell = getCell(day, slot);
     const key = `${date}|${slot}`;
-    setBusy(key);
-    try {
-      const booked = cell?.booked_count || 0;
-      const capacity = cell?.capacity ?? DEFAULT_SLOT_CAPACITY;
-      const status = cellStatus(cell);
-      let result = { notified: 0 };
+    const status = getSlotStatus(cell);
+    const booked = cell?.booked_count || 0;
+    const capacity = cell?.capacity ?? DEFAULT_SLOT_CAPACITY;
 
-      if (status === "closed") {
-        result = await updateAvailabilitySlot(date, slot, {
-          is_enabled: true,
-          capacity: Math.max(DEFAULT_SLOT_CAPACITY, booked),
-        });
-      } else if (status === "available") {
-        result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
-      } else if (status === "partial") {
-        result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: booked });
-      } else if (status === "full") {
-        const next = window.prompt(
-          `Slot ${date} ${formatTime12h(slot)}: ${booked}/${capacity} booked.\nEnter new capacity (min ${booked}) or leave blank to close:`,
-          String(Math.max(capacity, booked))
-        );
-        if (next === null) return;
-        if (next.trim() === "") {
-          result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
-        } else {
-          const cap = Math.max(booked, parseInt(next, 10) || capacity);
-          result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: cap });
-        }
-      }
+    if (status === "full" || status === "partial") return;
+
+    const nextEnabled = status === "closed";
+    const snapshot = cell ? { ...cell } : null;
+
+    skipSyncUntil.current = Date.now() + 2500;
+    patchCell(date, slot, {
+      is_enabled: nextEnabled,
+      capacity: Math.max(DEFAULT_SLOT_CAPACITY, booked),
+      booked_count: booked,
+    });
+    flashCell(key);
+    setBusy(key);
+
+    try {
+      const result = await updateAvailabilitySlot(date, slot, {
+        is_enabled: nextEnabled,
+        capacity,
+      });
       toastAffected(result?.notified || 0);
-      await load();
     } catch (err) {
-      console.error(err);
+      if (snapshot) patchCell(date, slot, snapshot);
+      else setData((prev) => prev.filter((r) => !(r.avail_date === date && r.time_slot === slot)));
+      Swal.fire({ icon: "error", title: "Update failed", text: err.message, timer: 2500, showConfirmButton: false });
     } finally {
       setBusy(null);
     }
@@ -160,79 +158,100 @@ export default function AvailabilityHeatmap({ compact = false }) {
   const toggleDay = async (day, enable) => {
     if (isPastDate(day)) return;
     const date = `${month}-${String(day).padStart(2, "0")}`;
-    setBusy(`day-${day}`);
+    const key = `day-${day}`;
+    const snapshot = data.filter((r) => r.avail_date === date);
+
+    skipSyncUntil.current = Date.now() + 2500;
+    setData((prev) => {
+      const others = prev.filter((r) => r.avail_date !== date);
+      const updated = timeSlots.map((slot) => {
+        const existing = prev.find((r) => r.avail_date === date && r.time_slot === slot);
+        return {
+          avail_date: date,
+          time_slot: slot,
+          capacity: existing?.capacity ?? DEFAULT_SLOT_CAPACITY,
+          booked_count: existing?.booked_count ?? 0,
+          is_enabled: enable,
+        };
+      });
+      return [...others, ...updated];
+    });
+    setBusy(key);
+
     try {
       const result = await setDayAvailability(date, enable, timeSlots);
       if (!enable) toastAffected(result?.notified || 0);
-      await load();
+    } catch (err) {
+      setData((prev) => {
+        const others = prev.filter((r) => r.avail_date !== date);
+        return [...others, ...snapshot];
+      });
+      Swal.fire({ icon: "error", title: "Update failed", text: err.message, timer: 2500, showConfirmButton: false });
     } finally {
       setBusy(null);
     }
   };
 
   return (
-    <div className={compact ? "" : "bg-white rounded-2xl border border-[#E8E1DA] p-6"}>
-      <div className={`flex flex-wrap justify-between items-center gap-3 ${compact ? "mb-4" : "mb-6"}`}>
+    <div className={compact ? "" : "bg-white rounded-2xl border border-[#E8E1DA] p-5 sm:p-6"}>
+      <div className={`flex flex-wrap justify-between items-start gap-4 ${compact ? "mb-4" : "mb-5"}`}>
         <div>
-          {!compact && <h2 className="font-semibold text-[#5B4636] text-lg">Availability Heatmap</h2>}
-          <p className="text-xs text-gray-500 mt-1">
-            30-minute slots (1 booking each). Past days show bookings but cannot be edited. Click a future slot to
-            cycle open/closed.
+          {!compact && <h2 className="font-semibold text-[#5B4636] text-lg">Schedule</h2>}
+          <p className="text-xs text-gray-400 mt-0.5">
+            Tap a dot to open or close. Red = booked. Past days are view-only.
           </p>
         </div>
         <input
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
-          className="border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm"
+          className="border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm bg-[#F8F6F3] focus:outline-none focus:border-[#A98B75]"
           aria-label="Select month"
         />
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-x-4 gap-y-2 mb-5">
         {LEGEND.map((item) => (
-          <span key={item.label} className="flex items-center gap-1.5 text-xs text-gray-600">
-            <span className={`w-3 h-3 rounded border ${item.className}`} />
+          <span key={item.label} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+            <span className={`w-2.5 h-2.5 rounded-full ${item.className}`} />
             {item.label}
           </span>
         ))}
       </div>
 
-      {loading ? (
-        <p className="text-gray-400 text-sm">Loading availability...</p>
+      {initialLoading ? (
+        <div className="flex items-center justify-center py-16 text-sm text-gray-400 animate-pulse">
+          Loading schedule…
+        </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="text-xs border-collapse w-full min-w-[720px]">
+        <div className="overflow-x-auto -mx-1 px-1 pb-1">
+          <table className="border-separate border-spacing-1 text-[10px] w-full min-w-[640px]">
             <thead>
               <tr>
-                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3] text-left sticky left-0 z-10" rowSpan={2}>
-                  Day
-                </th>
-                {amSlots.length > 0 && (
+                <th className="sticky left-0 z-20 bg-white p-1 w-14" rowSpan={2} />
+                {timeSlots.some(isAmSlot) && (
                   <th
-                    colSpan={amSlots.length}
-                    className="p-1.5 border border-[#E8E1DA] bg-[#EFE8E1] text-[#5B4636] font-semibold"
+                    colSpan={timeSlots.filter(isAmSlot).length}
+                    className="p-1 text-[10px] font-semibold uppercase tracking-wider text-[#A98B75]/80 text-center"
                   >
                     AM
                   </th>
                 )}
-                {pmSlots.length > 0 && (
+                {timeSlots.some((s) => !isAmSlot(s)) && (
                   <th
-                    colSpan={pmSlots.length}
-                    className="p-1.5 border border-[#E8E1DA] bg-[#E8E1DA] text-[#5B4636] font-semibold"
+                    colSpan={timeSlots.filter((s) => !isAmSlot(s)).length}
+                    className="p-1 text-[10px] font-semibold uppercase tracking-wider text-[#5B4636]/60 text-center"
                   >
                     PM
                   </th>
                 )}
-                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]" rowSpan={2}>
-                  Actions
-                </th>
+                <th className="w-16 p-1" rowSpan={2} />
               </tr>
               <tr>
                 {timeSlots.map((s) => (
                   <th
                     key={s}
-                    className="p-1.5 border border-[#E8E1DA] bg-[#F8F6F3] font-medium whitespace-nowrap"
+                    className="p-0 font-normal text-gray-400 text-[9px] whitespace-nowrap pb-1"
                     title={formatTime12h(s)}
                   >
                     {formatTime12hCompact(s)}
@@ -246,71 +265,77 @@ export default function AvailabilityHeatmap({ compact = false }) {
                 const weekday = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
                 const past = isPastDate(day);
                 return (
-                  <tr key={day} className={past ? "bg-slate-50/80" : undefined}>
+                  <tr key={day}>
                     <td
-                      className={`p-2 border border-[#E8E1DA] font-medium sticky left-0 z-10 ${
-                        past ? "bg-slate-100 text-gray-500" : "bg-white"
+                      className={`sticky left-0 z-10 py-1 pr-2 pl-0 whitespace-nowrap ${
+                        past ? "text-gray-400" : "text-[#5B4636]"
                       }`}
                     >
-                      {day} <span className="text-gray-400">{weekday}</span>
-                      {past && <span className="block text-[9px] text-gray-400 font-normal">Past</span>}
+                      <span className="font-semibold text-xs">{day}</span>
+                      <span className="text-[9px] text-gray-400 ml-1">{weekday}</span>
                     </td>
                     {timeSlots.map((slot) => {
                       const cell = getCell(day, slot);
+                      const status = getSlotStatus(cell);
                       const key = `${date}|${slot}`;
+                      const title = `${formatTime12h(slot)} — ${
+                        status === "full"
+                          ? "Booked"
+                          : status === "partial"
+                            ? `${cell?.booked_count}/${cell?.capacity} booked`
+                            : status === "closed"
+                              ? "Closed"
+                              : "Open · tap to close"
+                      }`;
+                      const canToggle = !past && (status === "available" || status === "closed");
+                      const updating = popping === key;
+
                       return (
-                        <td key={slot} className="p-1 border border-[#E8E1DA]">
-                          {past ? (
-                            <div
-                              className={`w-full min-w-[44px] py-2 rounded-lg border text-center text-[10px] leading-tight ${cellStyle(cell, true)}`}
-                              title={
-                                cell
-                                  ? `${date} ${formatTime12h(slot)}: ${cell.booked_count}/${cell.capacity} (past — view only)`
-                                  : `${date} ${formatTime12h(slot)} (past — view only)`
-                              }
-                            >
-                              {cellLabel(cell)}
-                            </div>
+                        <td key={slot} className="p-0 text-center">
+                          {past || !canToggle ? (
+                            <span
+                              className={`avail-cell inline-block w-3.5 h-3.5 rounded-full ${heatmapCellClass(status, { past })}`}
+                              title={past ? `${title} (past)` : title}
+                            />
                           ) : (
                             <button
                               type="button"
                               disabled={busy === key}
                               onClick={() => handleCellClick(day, slot)}
-                              className={`w-full min-w-[44px] py-2 rounded-lg border text-center text-[10px] leading-tight transition hover:opacity-80 disabled:opacity-60 ${cellStyle(cell, false)}`}
-                              title={
-                                cell
-                                  ? `${date} ${formatTime12h(slot)}: ${cell.booked_count}/${cell.capacity} — ${cellStatus(cell)}`
-                                  : `Click to open ${formatTime12h(slot)}`
-                              }
-                            >
-                              {cellLabel(cell)}
-                            </button>
+                              className={`avail-cell inline-block w-3.5 h-3.5 rounded-full disabled:opacity-50 ${heatmapCellClass(status, { updating })}`}
+                              title={title}
+                              aria-label={title}
+                            />
                           )}
                         </td>
                       );
                     })}
-                    <td className="p-1 border border-[#E8E1DA] whitespace-nowrap">
+                    <td className="p-0 pl-1">
                       {past ? (
-                        <span className="text-[10px] text-gray-400 px-1">View only</span>
+                        <span className="text-[9px] text-gray-300">—</span>
                       ) : (
-                        <>
+                        <div className="flex gap-0.5">
                           <button
                             type="button"
                             disabled={busy === `day-${day}`}
                             onClick={() => toggleDay(day, true)}
-                            className="text-[10px] px-2 py-1 rounded bg-green-100 text-green-800 mr-1"
+                            className="p-1 rounded-md text-emerald-600 hover:bg-emerald-50 transition disabled:opacity-40"
+                            title="Open all slots"
+                            aria-label={`Open all on ${date}`}
                           >
-                            Open
+                            <FaLockOpen size={11} />
                           </button>
                           <button
                             type="button"
                             disabled={busy === `day-${day}`}
                             onClick={() => toggleDay(day, false)}
-                            className="text-[10px] px-2 py-1 rounded bg-red-100 text-red-800"
+                            className="p-1 rounded-md text-gray-400 hover:bg-gray-100 transition disabled:opacity-40"
+                            title="Close all slots"
+                            aria-label={`Close all on ${date}`}
                           >
-                            Close
+                            <FaLock size={11} />
                           </button>
-                        </>
+                        </div>
                       )}
                     </td>
                   </tr>
