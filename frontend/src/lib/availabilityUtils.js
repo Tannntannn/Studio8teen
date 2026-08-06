@@ -20,25 +20,23 @@ export function availabilityHeatLabel(ratio) {
   return "Partial";
 }
 
-/** Minimal admin heatmap dot colors (no text in cell) */
-export function heatmapCellClass(status, { past = false, updating = false } = {}) {
-  const base = {
-    available: "bg-emerald-400",
-    partial: "bg-amber-400",
-    full: "bg-red-500",
-    closed: "bg-gray-200",
-  }[status] || "bg-gray-100";
-  const pastCls = past ? "opacity-50 cursor-default" : "";
+/** Client-matching chip styles for admin schedule */
+export function scheduleChipClass(status, { past = false, updating = false } = {}) {
+  const styles = {
+    available: "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100",
+    partial: "bg-amber-200 border-amber-400 text-amber-900 hover:bg-amber-300",
+    full: "bg-red-200 border-red-500 text-red-900 cursor-default",
+    closed: "bg-gray-100 border-gray-200 text-gray-400 hover:bg-gray-50",
+  };
+  const base = styles[status] || styles.closed;
+  const pastCls = past ? "opacity-55 cursor-default" : "";
   const pop = updating ? "avail-cell-pop" : "";
-  return `${base} ${pastCls} ${pop}`.trim();
+  return `${base} border rounded-xl ${pastCls} ${pop}`.trim();
 }
 
-export function heatmapCellTitle(date, slot, cell, status) {
-  const time = slot;
-  if (!cell || status === "closed") return `${date} · Closed`;
-  if (status === "full") return `${date} · Booked (${cell.booked_count}/${cell.capacity})`;
-  if (status === "partial") return `${date} · ${cell.booked_count}/${cell.capacity} booked`;
-  return `${date} · Open — click to close`;
+/** @deprecated use scheduleChipClass */
+export function heatmapCellClass(status, opts) {
+  return scheduleChipClass(status, opts);
 }
 
 /** Derive slot status from availability row */

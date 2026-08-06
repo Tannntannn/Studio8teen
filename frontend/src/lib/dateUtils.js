@@ -33,12 +33,12 @@ export function formatTime12h(timeSlot) {
   return `${h12}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
-/** Compact header label: "9a", "9:30a", "12p", "1:30p". */
+/** Compact chip label: "9am", "9:30am", "1pm". */
 export function formatTime12hCompact(timeSlot) {
   const parsed = parseSlotStart(timeSlot);
   if (!parsed) return String(timeSlot || "");
   const { hours, minutes } = parsed;
-  const suffix = hours >= 12 ? "p" : "a";
+  const suffix = hours >= 12 ? "pm" : "am";
   const h12 = hours % 12 || 12;
   return minutes === 0 ? `${h12}${suffix}` : `${h12}:${String(minutes).padStart(2, "0")}${suffix}`;
 }

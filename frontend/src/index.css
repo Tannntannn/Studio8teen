@@ -283,8 +283,8 @@ body {
 }
 
 .avail-cell:not(:disabled):hover {
-  transform: scale(1.12);
-  box-shadow: 0 2px 8px rgba(91, 70, 54, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(91, 70, 54, 0.1);
 }
 
 .avail-cell:not(:disabled):active {
