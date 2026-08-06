@@ -5,6 +5,7 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import { getAllBookings, deleteBooking } from "../../services/bookings";
 import { useAuth } from "../../context/AuthContext";
+import { formatTime12h } from "../../lib/dateUtils";
 
 export default function AdminBookings() {
   const { profile } = useAuth();
@@ -110,7 +111,7 @@ export default function AdminBookings() {
                     )}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    {b.event_date} at {b.time_slot} · {b.location || "Studio"}
+                    {b.event_date} at {formatTime12h(b.time_slot)} · {b.location || "Studio"}
                   </p>
                   {b.payments?.[0] && (
                     <p className="text-xs text-gray-400 mt-1">

@@ -11,6 +11,8 @@ import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBook
 import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
+import { formatTime12h } from "../../lib/dateUtils";
+import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
 
 const STATUS_STYLES = {
   awaiting_payment: "bg-amber-100 text-amber-800",
@@ -152,14 +154,14 @@ export default function AdminBookingDetail() {
     try {
       slots = await getTimeSlots();
     } catch {
-      slots = ["09:00-11:00", "13:00-15:00", "15:00-17:00"];
+      slots = [...DEFAULT_TIME_SLOTS];
     }
     const { value: formValues, isConfirmed } = await Swal.fire({
       title: "Reschedule booking",
       html: `
         <input id="sb-reschedule-date" type="date" class="swal2-input" value="${booking.event_date || ""}" />
         <select id="sb-reschedule-slot" class="swal2-input">
-          ${slots.map((s) => `<option value="${s}" ${s === booking.time_slot ? "selected" : ""}>${s}</option>`).join("")}
+          ${slots.map((s) => `<option value="${s}" ${s === booking.time_slot ? "selected" : ""}>${formatTime12h(s)}</option>`).join("")}
         </select>
         <input id="sb-reschedule-note" class="swal2-input" placeholder="Optional note for client" />
       `,
@@ -326,7 +328,7 @@ export default function AdminBookingDetail() {
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-500 mt-2">
             <span className="inline-flex items-center gap-1.5">
               <FaCalendarAlt className="text-[#A98B75]" size={13} />
-              {booking.event_date} at {booking.time_slot}
+              {booking.event_date} at {formatTime12h(booking.time_slot)}
             </span>
             <span className="inline-flex items-center gap-1.5">
               <FaMapMarkerAlt className="text-[#A98B75]" size={13} />

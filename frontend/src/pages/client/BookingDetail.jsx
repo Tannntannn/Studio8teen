@@ -10,6 +10,7 @@ import { getChecklist, updateChecklist } from "../../services/gallery";
 import { getChecklistProgress, getChecklistTasks, formatCheckedAt } from "../../lib/checklist";
 import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../lib/bookingReceipt";
 import { CANCELLATION_FEE } from "../../lib/constants";
+import { formatTime12h } from "../../lib/dateUtils";
 import { FaDownload, FaQrcode } from "react-icons/fa";
 import QRCode from "qrcode";
 
@@ -148,7 +149,7 @@ export default function BookingDetail() {
 
         <div className="mb-8 text-center">
           <h1 className="heading-serif text-3xl font-bold text-[#5B4636]">{booking.packages?.name}</h1>
-          <p className="text-gray-500 mt-1">{booking.event_date} at {booking.time_slot} — {booking.location}</p>
+          <p className="text-gray-500 mt-1">{booking.event_date} at {formatTime12h(booking.time_slot)} — {booking.location}</p>
           <span className="inline-block mt-2 text-xs px-3 py-1 rounded-full bg-[#A98B75]/10 text-[#A98B75] font-medium capitalize">
             {booking.status.replace(/_/g, " ")}
           </span>

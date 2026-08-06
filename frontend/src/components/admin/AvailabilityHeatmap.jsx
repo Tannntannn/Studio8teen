@@ -9,19 +9,27 @@ import {
   syncMonthAvailability,
   updateAvailabilitySlot,
 } from "../../services/settings";
+import { DEFAULT_SLOT_CAPACITY } from "../../lib/constants";
+import { formatTime12h, formatTime12hCompact, isAmSlot, localDateISO } from "../../lib/dateUtils";
 
 const LEGEND = [
   { label: "Available", className: "bg-green-200 border-green-400" },
   { label: "Partial", className: "bg-amber-200 border-amber-400" },
   { label: "Full", className: "bg-red-200 border-red-400" },
   { label: "Closed", className: "bg-gray-200 border-gray-300" },
+  { label: "Past (view only)", className: "bg-slate-100 border-slate-300" },
 ];
 
-function cellStyle(cell) {
-  if (!cell || cell.is_enabled === false) return "bg-gray-200 border-gray-300 text-gray-500";
-  if (cell.booked_count >= cell.capacity) return "bg-red-200 border-red-400 text-red-800";
-  if (cell.booked_count > 0) return "bg-amber-200 border-amber-400 text-amber-900";
-  return "bg-green-200 border-green-400 text-green-900";
+function cellStyle(cell, isPast) {
+  const base =
+    !cell || cell.is_enabled === false
+      ? "bg-gray-200 border-gray-300 text-gray-500"
+      : cell.booked_count >= cell.capacity
+        ? "bg-red-200 border-red-400 text-red-800"
+        : cell.booked_count > 0
+          ? "bg-amber-200 border-amber-400 text-amber-900"
+          : "bg-green-200 border-green-400 text-green-900";
+  return isPast ? `${base} opacity-70 cursor-default` : base;
 }
 
 function cellLabel(cell) {
@@ -58,6 +66,7 @@ export default function AvailabilityHeatmap({ compact = false }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
+  const today = localDateISO();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,38 +101,50 @@ export default function AvailabilityHeatmap({ compact = false }) {
     return new Date(y, m, 0).getDate();
   })();
 
+  const amSlots = timeSlots.filter((s) => isAmSlot(s));
+  const pmSlots = timeSlots.filter((s) => !isAmSlot(s));
+
   const getCell = (day, slot) => {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     return data.find((d) => d.avail_date === date && d.time_slot === slot);
   };
 
+  const isPastDate = (day) => {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    return date < today;
+  };
+
   const handleCellClick = async (day, slot) => {
+    if (isPastDate(day)) return;
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const cell = getCell(day, slot);
     const key = `${date}|${slot}`;
     setBusy(key);
     try {
       const booked = cell?.booked_count || 0;
-      const capacity = cell?.capacity ?? 2;
+      const capacity = cell?.capacity ?? DEFAULT_SLOT_CAPACITY;
       const status = cellStatus(cell);
       let result = { notified: 0 };
 
       if (status === "closed") {
-        result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: Math.max(2, booked + 1) });
+        result = await updateAvailabilitySlot(date, slot, {
+          is_enabled: true,
+          capacity: Math.max(DEFAULT_SLOT_CAPACITY, booked),
+        });
       } else if (status === "available") {
         result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
       } else if (status === "partial") {
         result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: booked });
       } else if (status === "full") {
         const next = window.prompt(
-          `Slot ${date} ${slot}: ${booked}/${capacity} booked.\nEnter new capacity (min ${booked}) or leave blank to close:`,
-          String(capacity + 1)
+          `Slot ${date} ${formatTime12h(slot)}: ${booked}/${capacity} booked.\nEnter new capacity (min ${booked}) or leave blank to close:`,
+          String(Math.max(capacity, booked))
         );
         if (next === null) return;
         if (next.trim() === "") {
           result = await updateAvailabilitySlot(date, slot, { is_enabled: false, capacity });
         } else {
-          const cap = Math.max(booked, parseInt(next, 10) || capacity + 1);
+          const cap = Math.max(booked, parseInt(next, 10) || capacity);
           result = await updateAvailabilitySlot(date, slot, { is_enabled: true, capacity: cap });
         }
       }
@@ -137,6 +158,7 @@ export default function AvailabilityHeatmap({ compact = false }) {
   };
 
   const toggleDay = async (day, enable) => {
+    if (isPastDate(day)) return;
     const date = `${month}-${String(day).padStart(2, "0")}`;
     setBusy(`day-${day}`);
     try {
@@ -154,7 +176,8 @@ export default function AvailabilityHeatmap({ compact = false }) {
         <div>
           {!compact && <h2 className="font-semibold text-[#5B4636] text-lg">Availability Heatmap</h2>}
           <p className="text-xs text-gray-500 mt-1">
-            Click a slot to cycle: Open → Closed, or Partial → Full. Bookings update counts automatically.
+            30-minute slots (1 booking each). Past days show bookings but cannot be edited. Click a future slot to
+            cycle open/closed.
           </p>
         </div>
         <input
@@ -179,63 +202,116 @@ export default function AvailabilityHeatmap({ compact = false }) {
         <p className="text-gray-400 text-sm">Loading availability...</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="text-xs border-collapse w-full min-w-[480px]">
+          <table className="text-xs border-collapse w-full min-w-[720px]">
             <thead>
               <tr>
-                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3] text-left sticky left-0">Day</th>
+                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3] text-left sticky left-0 z-10" rowSpan={2}>
+                  Day
+                </th>
+                {amSlots.length > 0 && (
+                  <th
+                    colSpan={amSlots.length}
+                    className="p-1.5 border border-[#E8E1DA] bg-[#EFE8E1] text-[#5B4636] font-semibold"
+                  >
+                    AM
+                  </th>
+                )}
+                {pmSlots.length > 0 && (
+                  <th
+                    colSpan={pmSlots.length}
+                    className="p-1.5 border border-[#E8E1DA] bg-[#E8E1DA] text-[#5B4636] font-semibold"
+                  >
+                    PM
+                  </th>
+                )}
+                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]" rowSpan={2}>
+                  Actions
+                </th>
+              </tr>
+              <tr>
                 {timeSlots.map((s) => (
-                  <th key={s} className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]">{s}</th>
+                  <th
+                    key={s}
+                    className="p-1.5 border border-[#E8E1DA] bg-[#F8F6F3] font-medium whitespace-nowrap"
+                    title={formatTime12h(s)}
+                  >
+                    {formatTime12hCompact(s)}
+                  </th>
                 ))}
-                <th className="p-2 border border-[#E8E1DA] bg-[#F8F6F3]">Actions</th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
                 const date = `${month}-${String(day).padStart(2, "0")}`;
-                const weekday = new Date(date).toLocaleDateString("en-US", { weekday: "short" });
+                const weekday = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
+                const past = isPastDate(day);
                 return (
-                  <tr key={day}>
-                    <td className="p-2 border border-[#E8E1DA] font-medium bg-white sticky left-0">
+                  <tr key={day} className={past ? "bg-slate-50/80" : undefined}>
+                    <td
+                      className={`p-2 border border-[#E8E1DA] font-medium sticky left-0 z-10 ${
+                        past ? "bg-slate-100 text-gray-500" : "bg-white"
+                      }`}
+                    >
                       {day} <span className="text-gray-400">{weekday}</span>
+                      {past && <span className="block text-[9px] text-gray-400 font-normal">Past</span>}
                     </td>
                     {timeSlots.map((slot) => {
                       const cell = getCell(day, slot);
                       const key = `${date}|${slot}`;
                       return (
                         <td key={slot} className="p-1 border border-[#E8E1DA]">
-                          <button
-                            type="button"
-                            disabled={busy === key}
-                            onClick={() => handleCellClick(day, slot)}
-                            className={`w-full min-w-[56px] py-2 rounded-lg border text-center text-[10px] leading-tight transition hover:opacity-80 disabled:opacity-60 ${cellStyle(cell)}`}
-                            title={
-                              cell
-                                ? `${cell.avail_date} ${slot}: ${cell.booked_count}/${cell.capacity} — ${cellStatus(cell)}`
-                                : "Click to open"
-                            }
-                          >
-                            {cellLabel(cell)}
-                          </button>
+                          {past ? (
+                            <div
+                              className={`w-full min-w-[44px] py-2 rounded-lg border text-center text-[10px] leading-tight ${cellStyle(cell, true)}`}
+                              title={
+                                cell
+                                  ? `${date} ${formatTime12h(slot)}: ${cell.booked_count}/${cell.capacity} (past — view only)`
+                                  : `${date} ${formatTime12h(slot)} (past — view only)`
+                              }
+                            >
+                              {cellLabel(cell)}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busy === key}
+                              onClick={() => handleCellClick(day, slot)}
+                              className={`w-full min-w-[44px] py-2 rounded-lg border text-center text-[10px] leading-tight transition hover:opacity-80 disabled:opacity-60 ${cellStyle(cell, false)}`}
+                              title={
+                                cell
+                                  ? `${date} ${formatTime12h(slot)}: ${cell.booked_count}/${cell.capacity} — ${cellStatus(cell)}`
+                                  : `Click to open ${formatTime12h(slot)}`
+                              }
+                            >
+                              {cellLabel(cell)}
+                            </button>
+                          )}
                         </td>
                       );
                     })}
                     <td className="p-1 border border-[#E8E1DA] whitespace-nowrap">
-                      <button
-                        type="button"
-                        disabled={busy === `day-${day}`}
-                        onClick={() => toggleDay(day, true)}
-                        className="text-[10px] px-2 py-1 rounded bg-green-100 text-green-800 mr-1"
-                      >
-                        Open
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy === `day-${day}`}
-                        onClick={() => toggleDay(day, false)}
-                        className="text-[10px] px-2 py-1 rounded bg-red-100 text-red-800"
-                      >
-                        Close
-                      </button>
+                      {past ? (
+                        <span className="text-[10px] text-gray-400 px-1">View only</span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy === `day-${day}`}
+                            onClick={() => toggleDay(day, true)}
+                            className="text-[10px] px-2 py-1 rounded bg-green-100 text-green-800 mr-1"
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy === `day-${day}`}
+                            onClick={() => toggleDay(day, false)}
+                            className="text-[10px] px-2 py-1 rounded bg-red-100 text-red-800"
+                          >
+                            Close
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );

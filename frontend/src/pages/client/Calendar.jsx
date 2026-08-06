@@ -9,7 +9,8 @@ import {
   syncMonthAvailability,
 } from "../../services/settings";
 import { getMyBookings } from "../../services/bookings";
-import { monthEndISO } from "../../lib/dateUtils";
+import { formatTime12h, monthEndISO } from "../../lib/dateUtils";
+import { availabilityHeatClass, availabilityHeatLabel } from "../../lib/availabilityUtils";
 
 const ACTIVE_STATUSES = new Set([
   "awaiting_payment",
@@ -74,11 +75,7 @@ export default function CalendarPage() {
     return booked / totalCap;
   };
 
-  const heatColor = (ratio) => {
-    if (ratio === 0) return "bg-sky-100 text-sky-800 border-sky-200";
-    if (ratio < 1) return "bg-sky-50 text-sky-900 border-sky-300";
-    return "bg-red-100 text-red-800 border-red-200";
-  };
+  const heatColor = (ratio) => availabilityHeatClass(ratio);
 
   const dayBookings = (day) => {
     const date = `${month}-${String(day).padStart(2, "0")}`;
@@ -96,9 +93,9 @@ export default function CalendarPage() {
         <div className="mb-6 flex flex-wrap items-center gap-4">
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="border border-[#E8E1DA] rounded-xl px-4 py-2" />
           <div className="flex gap-2 text-xs">
-            <span className="px-2 py-1 rounded bg-sky-100 border border-sky-200">Available</span>
-            <span className="px-2 py-1 rounded bg-sky-50 border border-sky-300">Limited</span>
-            <span className="px-2 py-1 rounded bg-red-100 border border-red-200">Fully booked</span>
+            <span className="px-2 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-800">Available</span>
+            <span className="px-2 py-1 rounded bg-amber-200 border border-amber-400 text-amber-900">Limited</span>
+            <span className="px-2 py-1 rounded bg-red-200 border border-red-400 text-red-900">Fully booked</span>
           </div>
         </div>
 
@@ -115,7 +112,7 @@ export default function CalendarPage() {
                 className={`min-h-[72px] rounded-xl flex flex-col items-center justify-center text-sm border p-1 ${heatColor(heat)}`}
               >
                 <span className="font-medium">{day}</span>
-                <span className="text-[10px]">{heat === 0 ? "Open" : heat < 1 ? "Partial" : "Full"}</span>
+                <span className="text-[10px] font-medium">{availabilityHeatLabel(heat)}</span>
                 {mine.length > 0 && (
                   <span className="text-[9px] mt-0.5 font-medium">Your booking</span>
                 )}
@@ -132,7 +129,7 @@ export default function CalendarPage() {
         <div className="space-y-3">
           {bookings.filter((b) => b.event_date?.startsWith(month)).map((b) => (
             <div key={b.id} className="bg-white rounded-xl border border-[#E8E1DA] p-4 flex justify-between gap-3">
-              <span>{b.packages?.name} — {b.event_date} at {b.time_slot}</span>
+              <span>{b.packages?.name} — {b.event_date} at {formatTime12h(b.time_slot)}</span>
               <span className="text-xs capitalize text-[#A98B75] shrink-0">{b.status.replace(/_/g, " ")}</span>
             </div>
           ))}

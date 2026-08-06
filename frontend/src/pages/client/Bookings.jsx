@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import ClientLayout from "../../components/layout/ClientLayout";
 import { FaCalendarAlt, FaClock, FaCheckCircle } from "react-icons/fa";
 import { getMyBookings } from "../../services/bookings";
+import { formatTime12h } from "../../lib/dateUtils";
 
 const STATUS_COLORS = {
   awaiting_payment: "bg-amber-100 text-amber-700",
@@ -76,7 +77,7 @@ export default function Bookings() {
                   <div>
                     <h3 className="font-semibold text-[#5B4636]">{b.packages?.name}</h3>
                     <p className="text-sm text-gray-500 mt-1">
-                      {b.event_date} at {b.time_slot} — {b.location || "Studio"}
+                      {b.event_date} at {formatTime12h(b.time_slot)} — {b.location || "Studio"}
                     </p>
                   </div>
                   <span className={`text-xs px-3 py-1 rounded-full font-medium ${STATUS_COLORS[b.status] || "bg-gray-100"}`}>

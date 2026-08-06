@@ -44,9 +44,13 @@ INSERT INTO faq_entries (question, answer, keywords) VALUES
   ('Is the studio responsible for my personal belongings?', 'No. The studio is not responsible for any lost or damaged personal belongings. Please keep your valuables with you.', ARRAY['belongings', 'lost', 'personal', 'items', 'valuables', 'responsible', 'liability'])
 ON CONFLICT DO NOTHING;
 
--- Seed availability (next 14 days, slots 9-5)
+-- Seed availability (next 14 days, 30-min slots 9 AM – 6 PM, capacity 1)
 INSERT INTO studio_availability (avail_date, time_slot, capacity, booked_count, is_enabled)
-SELECT d::date, slot, 2, 0, true
+SELECT d::date, to_char(t, 'HH24:MI'), 1, 0, true
 FROM generate_series(CURRENT_DATE, CURRENT_DATE + 13, '1 day') AS d
-CROSS JOIN (VALUES ('09:00'), ('11:00'), ('13:00'), ('15:00'), ('17:00')) AS slots(slot)
+CROSS JOIN generate_series(
+  TIMESTAMP '2000-01-01 09:00',
+  TIMESTAMP '2000-01-01 18:00',
+  INTERVAL '30 minutes'
+) AS t
 ON CONFLICT (avail_date, time_slot) DO NOTHING;

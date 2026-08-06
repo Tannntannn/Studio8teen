@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
-import { DEFAULT_TIME_SLOTS } from "../lib/constants";
+import { DEFAULT_SLOT_CAPACITY, DEFAULT_TIME_SLOTS } from "../lib/constants";
 import { notifyForClosedAvailability } from "./scheduleNotifications";
 
 export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
@@ -75,7 +75,7 @@ export async function ensureMonthAvailability(yearMonth, slots) {
         missing.push({
           avail_date: date,
           time_slot: slot,
-          capacity: 2,
+          capacity: DEFAULT_SLOT_CAPACITY,
           booked_count: 0,
           is_enabled: true,
         });
@@ -133,7 +133,7 @@ export async function updateAvailabilitySlot(date, timeSlot, { is_enabled, capac
     avail_date: date,
     time_slot: timeSlot,
     is_enabled: nextEnabled,
-    capacity: capacity ?? existing?.capacity ?? 2,
+    capacity: capacity ?? existing?.capacity ?? DEFAULT_SLOT_CAPACITY,
     booked_count: existing?.booked_count ?? 0,
   };
 
@@ -161,7 +161,7 @@ export async function setDayAvailability(date, isEnabled, slots) {
     avail_date: date,
     time_slot: slot,
     is_enabled: isEnabled,
-    capacity: bySlot[slot]?.capacity ?? 2,
+    capacity: bySlot[slot]?.capacity ?? DEFAULT_SLOT_CAPACITY,
     booked_count: bySlot[slot]?.booked_count ?? 0,
   }));
 

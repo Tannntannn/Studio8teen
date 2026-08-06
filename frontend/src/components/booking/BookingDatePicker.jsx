@@ -1,14 +1,13 @@
-import { getDayStatus } from "../../lib/availabilityUtils";
+import { AVAILABILITY_COLORS, getDayStatus } from "../../lib/availabilityUtils";
 import { localDateISO } from "../../lib/dateUtils";
 
-/** DentaBase-inspired palette fitted to Studio 8Teen branding */
 const DAY_STYLES = {
-  available: "bg-sky-50 border-sky-300 text-sky-800 hover:bg-sky-100 cursor-pointer",
-  partial: "bg-sky-100 border-sky-400 text-sky-900 hover:bg-sky-150 cursor-pointer",
-  full: "bg-red-50 border-red-300 text-red-500 cursor-not-allowed opacity-80",
-  closed: "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed opacity-60",
-  past: "bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed",
-  selected: "ring-2 ring-[#A98B75] ring-offset-1 bg-[#A98B75]/15 border-[#A98B75] text-[#5B4636]",
+  available: `${AVAILABILITY_COLORS.available} cursor-pointer`,
+  partial: `${AVAILABILITY_COLORS.partial} cursor-pointer`,
+  full: `${AVAILABILITY_COLORS.full} opacity-90`,
+  closed: AVAILABILITY_COLORS.closed,
+  past: AVAILABILITY_COLORS.past,
+  selected: AVAILABILITY_COLORS.selected,
 };
 
 const MONTH_NAMES = [
@@ -103,14 +102,14 @@ export default function BookingDatePicker({
                   : status === "closed"
                     ? "Closed"
                     : status === "partial"
-                      ? "Limited slots"
+                      ? "Some slots booked — limited availability"
                       : date
               }
             >
               <span>{day}</span>
-              {status === "full" && <span className="text-[8px] leading-none mt-0.5 font-medium">Full</span>}
+              {status === "full" && <span className="text-[8px] leading-none mt-0.5 font-bold">Full</span>}
               {status === "partial" && !isSelected && (
-                <span className="text-[8px] leading-none mt-0.5 font-medium">Ltd</span>
+                <span className="text-[8px] leading-none mt-0.5 font-bold">Ltd</span>
               )}
             </button>
           );
@@ -119,10 +118,13 @@ export default function BookingDatePicker({
 
       <div className="flex flex-wrap gap-4 mt-4 pt-3 border-t border-[#E8E1DA] text-xs text-gray-600">
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Available date
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border border-emerald-500" /> Available
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Fully booked
+          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 border border-amber-500" /> Limited
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-500 border border-red-600" /> Fully booked
         </span>
       </div>
     </div>

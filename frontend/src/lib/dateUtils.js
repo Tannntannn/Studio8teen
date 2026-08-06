@@ -13,14 +13,53 @@ export function monthEndISO(yearMonth) {
   return `${yearMonth}-${String(days).padStart(2, "0")}`;
 }
 
-/** Parse "HH:MM-HH:MM" end time; true if slot has already ended on local today. */
+/** Parse start time from "HH:MM" or "HH:MM-HH:MM". */
+export function parseSlotStart(timeSlot) {
+  if (!timeSlot || typeof timeSlot !== "string") return null;
+  const startPart = timeSlot.split("-")[0]?.trim();
+  if (!startPart) return null;
+  const [hh, mm] = startPart.split(":").map(Number);
+  if (Number.isNaN(hh)) return null;
+  return { hours: hh, minutes: mm || 0 };
+}
+
+/** Display "09:00" / "13:30" as "9:00 AM" / "1:30 PM". */
+export function formatTime12h(timeSlot) {
+  const parsed = parseSlotStart(timeSlot);
+  if (!parsed) return String(timeSlot || "");
+  const { hours, minutes } = parsed;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const h12 = hours % 12 || 12;
+  return `${h12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+/** Compact header label: "9a", "9:30a", "12p", "1:30p". */
+export function formatTime12hCompact(timeSlot) {
+  const parsed = parseSlotStart(timeSlot);
+  if (!parsed) return String(timeSlot || "");
+  const { hours, minutes } = parsed;
+  const suffix = hours >= 12 ? "p" : "a";
+  const h12 = hours % 12 || 12;
+  return minutes === 0 ? `${h12}${suffix}` : `${h12}:${String(minutes).padStart(2, "0")}${suffix}`;
+}
+
+export function isAmSlot(timeSlot) {
+  const parsed = parseSlotStart(timeSlot);
+  return parsed ? parsed.hours < 12 : false;
+}
+
+/**
+ * True if the slot start has already passed on local today.
+ * Supports "HH:MM" and range "HH:MM-HH:MM" (uses range end).
+ */
 export function isTimeSlotPast(timeSlot, now = new Date()) {
   if (!timeSlot || typeof timeSlot !== "string") return false;
-  const endPart = timeSlot.split("-")[1]?.trim();
-  if (!endPart) return false;
-  const [hh, mm] = endPart.split(":").map(Number);
+  const parts = timeSlot.split("-").map((p) => p.trim()).filter(Boolean);
+  const comparePart = parts.length > 1 ? parts[1] : parts[0];
+  if (!comparePart) return false;
+  const [hh, mm] = comparePart.split(":").map(Number);
   if (Number.isNaN(hh)) return false;
-  const end = new Date(now);
-  end.setHours(hh, mm || 0, 0, 0);
-  return now >= end;
+  const boundary = new Date(now);
+  boundary.setHours(hh, mm || 0, 0, 0);
+  return now >= boundary;
 }
