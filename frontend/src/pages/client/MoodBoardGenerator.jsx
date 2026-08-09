@@ -76,7 +76,7 @@ export default function MoodBoardGenerator() {
 
     setGenerating(true);
     try {
-      const result = generateMoodBoard(themes, prefs, { topN: 5 });
+      const result = generateMoodBoard(themes, prefs, { topN: 12 });
       if (result.error) {
         setGenerateError(result.error);
         setGenerated(null);
@@ -113,8 +113,8 @@ export default function MoodBoardGenerator() {
           </div>
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Mood Board Generator</h1>
           <p className="mt-2 text-gray-500 max-w-xl mx-auto">
-            Tell us about your event and preferences. We&apos;ll match the studio&apos;s inspiration
-            images and build a personalized mood board with the best-fitting looks.
+            Tell us about your event and preferences. We&apos;ll match studio inspiration photos
+            into a visual mood board collage tailored to your session.
           </p>
         </div>
 
@@ -150,8 +150,8 @@ export default function MoodBoardGenerator() {
               </select>
               {prefs.eventType && !noImagesForEvent && (
                 <p className="text-xs text-gray-400 mt-1.5">
-                  Your mood board will always show 5 photos
-                  {candidateImageCount < 5
+                  Your mood board collage will show up to 12 photos
+                  {candidateImageCount < 12
                     ? ` (${candidateImageCount} tagged for ${prefs.eventType}; extras filled from the studio library).`
                     : ` from the best matches for ${prefs.eventType}.`}
                 </p>
@@ -271,7 +271,6 @@ export default function MoodBoardGenerator() {
               theme={generated}
               eventType={generatedMeta?.eventType}
               sessionNotes={generatedMeta?.sessionNotes}
-              scoreSummary={generatedMeta?.scoreSummary}
               isPersonalized
             />
           </div>

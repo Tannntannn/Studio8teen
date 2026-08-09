@@ -3,33 +3,18 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import AvailabilityHeatmap from "../../components/admin/AvailabilityHeatmap";
 import { clearTimeSlotsCache, getTimeSlots, updateStudioSettings } from "../../services/settings";
 import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
-import { formatTime12h, formatTime12hCompact, isAmSlot } from "../../lib/dateUtils";
+import {
+  formatTime12h,
+  formatTime12hCompact,
+  isAmSlot,
+  parseSlotsFrom12hText,
+  slotsTo12hLines,
+} from "../../lib/dateUtils";
 import Swal from "sweetalert2";
 import { FaClock, FaChevronDown, FaChevronUp } from "react-icons/fa";
 
-function normalizeSlot(raw) {
-  const s = String(raw).trim();
-  const m = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (h > 23 || min > 59) return null;
-  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-}
-
-function parseSlots(text) {
-  return [
-    ...new Set(
-      text
-        .split(/[\n,]/)
-        .map(normalizeSlot)
-        .filter(Boolean)
-    ),
-  ].sort();
-}
-
 export default function AdminAvailability() {
-  const [timeSlotsText, setTimeSlotsText] = useState(DEFAULT_TIME_SLOTS.join("\n"));
+  const [timeSlotsText, setTimeSlotsText] = useState(slotsTo12hLines(DEFAULT_TIME_SLOTS));
   const [savedSlots, setSavedSlots] = useState(DEFAULT_TIME_SLOTS);
   const [savingSlots, setSavingSlots] = useState(false);
   const [heatmapKey, setHeatmapKey] = useState(0);
@@ -39,19 +24,21 @@ export default function AdminAvailability() {
     getTimeSlots()
       .then((slots) => {
         setSavedSlots(slots);
-        setTimeSlotsText(slots.join("\n"));
+        setTimeSlotsText(slotsTo12hLines(slots));
       })
       .catch(() => {});
   }, [heatmapKey]);
 
-  const previewSlots = useMemo(() => parseSlots(timeSlotsText), [timeSlotsText]);
-  const amPreview = previewSlots.filter(isAmSlot);
-  const pmPreview = previewSlots.filter((s) => !isAmSlot(s));
+  const previewSlots = useMemo(() => parseSlotsFrom12hText(timeSlotsText), [timeSlotsText]);
 
   const saveTimeSlots = async () => {
-    const slots = parseSlots(timeSlotsText);
+    const slots = parseSlotsFrom12hText(timeSlotsText);
     if (!slots.length) {
-      Swal.fire({ icon: "warning", title: "Add at least one time slot", text: "Use 24h format like 09:00 or 14:30." });
+      Swal.fire({
+        icon: "warning",
+        title: "Add at least one time slot",
+        text: "Use 12-hour format like 9:00 AM or 1:30 PM (one per line).",
+      });
       return;
     }
     setSavingSlots(true);
@@ -59,12 +46,13 @@ export default function AdminAvailability() {
       await updateStudioSettings({ time_slots: slots });
       clearTimeSlotsCache();
       setSavedSlots(slots);
+      setTimeSlotsText(slotsTo12hLines(slots));
       setHeatmapKey((k) => k + 1);
       setSlotsOpen(false);
       Swal.fire({
         icon: "success",
         title: "Time slots saved",
-        text: `${slots.length} slots · clients see AM/PM labels`,
+        text: `${slots.length} slots updated`,
         timer: 1800,
         showConfirmButton: false,
       });
@@ -142,20 +130,27 @@ export default function AdminAvailability() {
           {slotsOpen && (
             <div className="px-5 pb-5 border-t border-[#F8F6F3] animate-[pageFadeIn_0.2s_ease-out]">
               <p className="text-xs text-gray-400 mt-4 mb-3 text-center">
-                One time per line (24h). Default: every 30 min from {formatTime12h("09:00")} to{" "}
-                {formatTime12h("18:00")}.
+                One time per line in 12-hour format (e.g. 9:00 AM, 1:30 PM). Default: every 30 min from{" "}
+                {formatTime12h("09:00")} to {formatTime12h("18:00")}.
               </p>
               <textarea
                 value={timeSlotsText}
                 onChange={(e) => setTimeSlotsText(e.target.value)}
-                rows={6}
-                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 text-sm font-mono resize-none outline-none focus:border-[#A98B75] bg-[#F8F6F3]/50"
+                rows={8}
+                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-[#A98B75] bg-[#F8F6F3]/50 text-center leading-relaxed"
                 spellCheck={false}
+                placeholder={"9:00 AM\n9:30 AM\n10:00 AM"}
               />
-              {previewSlots.length > 0 && (
+              {previewSlots.length > 0 ? (
                 <p className="text-[10px] text-center text-gray-400 mt-2">
-                  Preview: {previewSlots.length} slots
+                  {previewSlots.length} valid slot{previewSlots.length === 1 ? "" : "s"} recognized
                 </p>
+              ) : (
+                timeSlotsText.trim() && (
+                  <p className="text-[10px] text-center text-red-400 mt-2">
+                    No valid times found — use format like 9:00 AM
+                  </p>
+                )
               )}
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 <button
@@ -168,7 +163,7 @@ export default function AdminAvailability() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTimeSlotsText(DEFAULT_TIME_SLOTS.join("\n"))}
+                  onClick={() => setTimeSlotsText(slotsTo12hLines(DEFAULT_TIME_SLOTS))}
                   className="px-5 py-2.5 rounded-xl border border-[#E8E1DA] text-[#5B4636] text-sm hover:bg-[#F8F6F3] transition"
                 >
                   Reset default

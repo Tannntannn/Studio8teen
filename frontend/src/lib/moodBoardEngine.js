@@ -9,7 +9,7 @@ import { filterThemesByEvent } from "./themeMatching";
  * parent theme's metadata (event type, theme name/tags, mood, location, style,
  * color palette, and recommendations). It filters by event type, scores each
  * image against the client's optional preferences, ranks by relevance, selects
- * the top matches, and derives recommendations from the winning images.
+ * the top matches, and derives recommendations from the winning images (default 12 for collage).
  */
 
 export const SCORE_WEIGHTS = {
@@ -20,7 +20,7 @@ export const SCORE_WEIGHTS = {
   photographyStyle: 3,
 };
 
-export const DEFAULT_TOP_N = 5;
+export const DEFAULT_TOP_N = 12;
 
 function norm(value) {
   return String(value || "").toLowerCase().trim();
@@ -110,7 +110,7 @@ export function buildCandidateImages(themes, eventType) {
   });
 }
 
-/** All inspiration images across themes (used to pad to exactly 5). */
+/** All inspiration images across themes (used to pad to the target collage size). */
 export function buildAllCandidateImages(themes) {
   return pushThemeImages([], themes);
 }
@@ -174,7 +174,7 @@ function buildDescription(prefs, selectedCount) {
 
 /**
  * Pick exactly `topN` images: best matches for the event first, then pad from
- * the rest of the studio library so the mood board always shows 5 photos.
+ * the rest of the studio library so the collage always reaches the target count.
  */
 function selectExactTop(themes, prefs, topN) {
   const primary = buildCandidateImages(themes, prefs.eventType)
@@ -219,7 +219,7 @@ function selectExactTop(themes, prefs, topN) {
 
 /**
  * Generate a personalized mood board.
- * Always returns exactly `topN` images (default 5), or an error if the studio
+ * Always returns exactly `topN` images (default 12), or an error if the studio
  * library does not have enough inspiration photos yet.
  * @returns {{ moodBoard, scoreSummary } | { error }}
  */

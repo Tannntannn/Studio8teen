@@ -43,6 +43,51 @@ export function formatTime12hCompact(timeSlot) {
   return minutes === 0 ? `${h12}${suffix}` : `${h12}:${String(minutes).padStart(2, "0")}${suffix}`;
 }
 
+/**
+ * Parse user input to 24h "HH:MM".
+ * Accepts: "9:00 AM", "9am", "1:30 pm", or "09:00" (24h).
+ */
+export function parseTime12hInput(raw) {
+  const s = String(raw).trim();
+  if (!s) return null;
+
+  const h24 = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (h24) {
+    const h = Number(h24[1]);
+    const min = Number(h24[2]);
+    if (h > 23 || min > 59) return null;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  const h12 = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (h12) {
+    let h = Number(h12[1]);
+    const min = Number(h12[2] || 0);
+    const ap = h12[3].toLowerCase();
+    if (h < 1 || h > 12 || min > 59) return null;
+    if (ap === "pm" && h !== 12) h += 12;
+    if (ap === "am" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
+export function slotsTo12hLines(slots) {
+  return (slots || []).map(formatTime12h).join("\n");
+}
+
+export function parseSlotsFrom12hText(text) {
+  return [
+    ...new Set(
+      String(text || "")
+        .split(/[\n,]/)
+        .map(parseTime12hInput)
+        .filter(Boolean)
+    ),
+  ].sort();
+}
+
 export function isAmSlot(timeSlot) {
   const parsed = parseSlotStart(timeSlot);
   return parsed ? parsed.hours < 12 : false;
