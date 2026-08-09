@@ -11,9 +11,9 @@ export async function updateProfile(userId, updates) {
   const {
     role: _role,
     id: _id,
-    email: _email,
     ...safe
   } = updates || {};
+  // email is allowed for walk-in guests filling contact info (DB trigger still blocks role changes)
   const { data, error } = await supabase.from("profiles").update(safe).eq("id", userId).select().single();
   if (error) throw error;
   return data;

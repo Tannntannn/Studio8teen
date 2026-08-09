@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { FaCalendarAlt, FaImages, FaBell, FaCheckCircle, FaDownload } from "react-icons/fa";
 import Swal from "sweetalert2";
 import ClientLayout from "../../components/layout/ClientLayout";
@@ -17,6 +17,10 @@ export default function Dashboard() {
   const [downloading, setDownloading] = useState(false);
 
   const daysLeft = guestDaysRemaining(profile?.guest_expires_at);
+
+  if (isGuest) {
+    return <Navigate to="/create-booking?mode=walk_in" replace />;
+  }
 
   useEffect(() => {
     if (!user) return;

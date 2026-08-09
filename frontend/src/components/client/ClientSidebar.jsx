@@ -1,16 +1,16 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import {
-  FaTachometerAlt,
   FaCalendarAlt,
+  FaSignOutAlt,
+  FaPlus,
+  FaKey,
+  FaTachometerAlt,
   FaImages,
   FaBell,
   FaUser,
-  FaSignOutAlt,
-  FaPlus,
-  FaCamera,
   FaPalette,
-  FaKey,
+  FaCamera,
 } from "react-icons/fa";
 import Swal from "sweetalert2";
 import BrandLogo from "../ui/BrandLogo";
@@ -18,7 +18,7 @@ import ConfirmModal from "../ui/ConfirmModal";
 import { useAuth } from "../../context/AuthContext";
 import { guestDaysRemaining } from "../../services/guestSessions";
 
-const menuItems = [
+const FULL_MENU = [
   { name: "Dashboard", path: "/client-dashboard", icon: FaTachometerAlt },
   { name: "Bookings", path: "/client-bookings", icon: FaCalendarAlt },
   { name: "Portfolio", path: "/client-gallery", icon: FaImages },
@@ -27,11 +27,17 @@ const menuItems = [
   { name: "Profile", path: "/client-profile", icon: FaUser },
 ];
 
+const GUEST_MENU = [
+  { name: "Bookings", path: "/client-bookings", icon: FaCalendarAlt },
+];
+
 const ClientSidebar = () => {
   const { signOut, isGuest, profile } = useAuth();
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
+
+  const menuItems = isGuest ? GUEST_MENU : FULL_MENU;
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -56,7 +62,7 @@ const ClientSidebar = () => {
           : days === 0
             ? "expires today"
             : `expires in about ${days} day${days === 1 ? "" : "s"}`
-      }. Create a password to keep your mood board, booking, and photos.</p>`,
+      }. Create a password to keep your booking.</p>`,
       showDenyButton: true,
       showCancelButton: true,
       confirmButtonText: "Create password",
@@ -82,13 +88,20 @@ const ClientSidebar = () => {
         aria-label="Client navigation"
       >
         <div className="p-5 border-b border-[#E8E1DA] min-h-[88px] flex items-center">
-          <BrandLogo to="/client-dashboard" size="sm" />
+          <BrandLogo to={isGuest ? "/create-booking?mode=walk_in" : "/client-dashboard"} size="sm" />
           <div className="ml-3 opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap overflow-hidden">
-            <p className="text-xs text-gray-500">{isGuest ? "Guest session" : "Client Portal"}</p>
+            <p className="text-xs text-gray-500">{isGuest ? "Guest / Walk-in" : "Client Portal"}</p>
           </div>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
+          {isGuest && (
+            <div className="mx-1 mb-3 px-2 py-2 rounded-xl bg-sky-50 border border-sky-100 opacity-0 group-hover/sidebar:opacity-100 transition-opacity">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">Walk-in</p>
+              <p className="text-[11px] text-sky-700 mt-0.5 truncate">{profile?.full_name || "Guest"}</p>
+            </div>
+          )}
+
           {menuItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -113,13 +126,13 @@ const ClientSidebar = () => {
           })}
 
           <NavLink
-            to="/create-booking"
+            to={isGuest ? "/create-booking?mode=walk_in" : "/create-booking"}
             title="New Booking"
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-[#A98B75] border border-[#A98B75]/30 hover:bg-[#A98B75]/10 transition mt-3"
           >
             <FaPlus size={16} className="flex-shrink-0 mx-1.5" />
             <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap font-medium">
-              New Booking
+              {isGuest ? "Walk-in booking" : "New Booking"}
             </span>
           </NavLink>
 
@@ -136,16 +149,18 @@ const ClientSidebar = () => {
             </NavLink>
           )}
 
-          <NavLink
-            to="/client-poses"
-            title="Pose Gallery"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-[#F8F6F3] transition"
-          >
-            <FaCamera size={16} className="flex-shrink-0 mx-1.5" />
-            <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-              Pose Gallery
-            </span>
-          </NavLink>
+          {!isGuest && (
+            <NavLink
+              to="/client-poses"
+              title="Pose Gallery"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-[#F8F6F3] transition"
+            >
+              <FaCamera size={16} className="flex-shrink-0 mx-1.5" />
+              <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+                Pose Gallery
+              </span>
+            </NavLink>
+          )}
         </nav>
 
         <div className="p-3 border-t border-[#E8E1DA]">

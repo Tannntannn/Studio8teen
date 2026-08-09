@@ -108,3 +108,13 @@ export function isTimeSlotPast(timeSlot, now = new Date()) {
   boundary.setHours(hh, mm || 0, 0, 0);
   return now >= boundary;
 }
+
+/**
+ * True if every provided time slot has already passed (local time).
+ * Used to disable "today" on the client calendar when no future slots remain.
+ */
+export function areAllTimeSlotsPast(slotTimes, now = new Date()) {
+  const times = (slotTimes || []).filter(Boolean);
+  if (!times.length) return false;
+  return times.every((t) => isTimeSlotPast(t, now));
+}

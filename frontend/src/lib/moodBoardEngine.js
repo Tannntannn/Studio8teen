@@ -13,11 +13,13 @@ import { filterThemesByEvent } from "./themeMatching";
  */
 
 export const SCORE_WEIGHTS = {
-  eventType: 10,
-  theme: 5,
-  mood: 4,
-  location: 3,
-  photographyStyle: 3,
+  eventType: 20,
+  exactEvent: 8,
+  theme: 8,
+  mood: 6,
+  location: 5,
+  photographyStyle: 5,
+  captionHint: 2,
 };
 
 export const DEFAULT_TOP_N = 12;
@@ -121,9 +123,14 @@ export function scoreCandidate(candidate, prefs) {
   let score = 0;
   const matched = [];
 
-  // Event type is guaranteed (candidates are pre-filtered by event type).
+  // Event-type candidates already match the filter; exact theme.event_type gets a bonus.
   score += SCORE_WEIGHTS.eventType;
   matched.push("Event type");
+
+  if (prefs.eventType && textMatches(theme.event_type, prefs.eventType)) {
+    score += SCORE_WEIGHTS.exactEvent;
+    matched.push("Exact event tag");
+  }
 
   if (prefs.theme) {
     const themeTokens = [theme.name, ...asStringArray(theme.tags)];
@@ -151,6 +158,18 @@ export function scoreCandidate(candidate, prefs) {
   score += styleMatch.score;
   matched.push(...styleMatch.matched);
 
+  // Soft boost when caption/theme name echoes preferred theme or mood words
+  const hintHay = `${candidate.caption || ""} ${candidate.themeName || ""}`.toLowerCase();
+  const hintNeedles = [
+    prefs.theme,
+    ...asCategoryValues(prefs.mood),
+    ...asCategoryValues(prefs.photographyStyle),
+  ].filter(Boolean);
+  if (hintNeedles.some((n) => hintHay.includes(norm(n)))) {
+    score += SCORE_WEIGHTS.captionHint;
+    matched.push("Caption/title hint");
+  }
+
   return { ...candidate, score, matched };
 }
 
@@ -175,6 +194,7 @@ function buildDescription(prefs, selectedCount) {
 /**
  * Pick exactly `topN` images: best matches for the event first, then pad from
  * the rest of the studio library so the collage always reaches the target count.
+ * Prefers event-tagged images and diversifies across themes (max 3 per theme first pass).
  */
 function selectExactTop(themes, prefs, topN) {
   const primary = buildCandidateImages(themes, prefs.eventType)
@@ -183,19 +203,28 @@ function selectExactTop(themes, prefs, topN) {
 
   const selected = [];
   const seen = new Set();
+  const themeCounts = new Map();
   const library = buildAllCandidateImages(themes);
+  const maxPerTheme = Math.max(2, Math.ceil(topN / 3));
 
-  const take = (list) => {
+  const take = (list, { respectThemeCap = true } = {}) => {
     for (const item of list) {
       if (selected.length >= topN) break;
       const key = String(item.url || item.id);
       if (!key || seen.has(key)) continue;
+      const tid = item.themeId || item.theme?.id || "unknown";
+      const count = themeCounts.get(tid) || 0;
+      if (respectThemeCap && count >= maxPerTheme) continue;
       seen.add(key);
+      themeCounts.set(tid, count + 1);
       selected.push(item);
     }
   };
 
-  take(primary);
+  // First: highest-scoring event matches with theme diversity
+  take(primary, { respectThemeCap: true });
+  // Second: more event matches without cap if still short
+  if (selected.length < topN) take(primary, { respectThemeCap: false });
 
   if (selected.length < topN) {
     const selectedKeys = new Set(selected.map((c) => String(c.url || c.id)));
@@ -203,15 +232,20 @@ function selectExactTop(themes, prefs, topN) {
       .filter((c) => !selectedKeys.has(String(c.url || c.id)))
       .map((candidate) => {
         const scored = scoreCandidate(candidate, prefs);
-        // Fillers may be outside the chosen event — keep preference matches, drop event bonus.
+        // Fillers outside the event lose the event bonus and get a penalty
+        const offEvent = !textMatches(candidate.theme?.event_type, prefs.eventType);
         return {
           ...scored,
-          score: Math.max(0, scored.score - SCORE_WEIGHTS.eventType),
+          score: Math.max(
+            0,
+            scored.score - SCORE_WEIGHTS.eventType - (offEvent ? 6 : 0)
+          ),
           matched: scored.matched.filter((m) => m !== "Event type"),
         };
       })
       .sort((a, b) => b.score - a.score || a.order - b.order);
-    take(fillers);
+    take(fillers, { respectThemeCap: true });
+    if (selected.length < topN) take(fillers, { respectThemeCap: false });
   }
 
   return { selected, primaryCount: primary.length, totalLibrary: library.length };

@@ -2,23 +2,24 @@ import { useState } from "react";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import ImageLightbox from "../ui/ImageLightbox";
 
-function Tile({ img, index, title, onOpen, className = "" }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(index)}
-      className={`relative overflow-hidden rounded-xl bg-[#EDE6DF] group shadow-[0_1px_0_rgba(91,70,54,0.06)] ${className}`}
-    >
-      <img
-        src={getThumbnailUrl(img.url, index === 0 ? 900 : 480, index === 0 ? 1100 : 480)}
-        alt={img.caption || img.themeName || title || "Inspiration"}
-        loading={index < 4 ? "eager" : "lazy"}
-        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
-      />
-      <span className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-    </button>
-  );
-}
+/**
+ * Layered overlapping collage inspired by editorial mood boards (moodboardai-style).
+ * Positions are % based so the board scales; photos stack with slight rotation.
+ */
+const LAYER_LAYOUT = [
+  { top: "6%", left: "4%", width: "48%", height: "46%", rotate: "-2deg", z: 2 },
+  { top: "4%", left: "48%", width: "28%", height: "28%", rotate: "3deg", z: 4 },
+  { top: "8%", left: "72%", width: "24%", height: "32%", rotate: "-4deg", z: 3 },
+  { top: "34%", left: "52%", width: "30%", height: "26%", rotate: "2deg", z: 5 },
+  { top: "50%", left: "2%", width: "26%", height: "28%", rotate: "4deg", z: 4 },
+  { top: "48%", left: "26%", width: "24%", height: "24%", rotate: "-3deg", z: 6 },
+  { top: "56%", left: "48%", width: "22%", height: "26%", rotate: "1deg", z: 3 },
+  { top: "42%", left: "72%", width: "24%", height: "30%", rotate: "-2deg", z: 5 },
+  { top: "74%", left: "8%", width: "22%", height: "20%", rotate: "2deg", z: 7 },
+  { top: "72%", left: "32%", width: "20%", height: "22%", rotate: "-5deg", z: 6 },
+  { top: "76%", left: "54%", width: "20%", height: "18%", rotate: "3deg", z: 4 },
+  { top: "70%", left: "74%", width: "22%", height: "24%", rotate: "-1deg", z: 5 },
+];
 
 export default function MoodBoardCollage({
   title,
@@ -28,116 +29,87 @@ export default function MoodBoardCollage({
   eventType,
 }) {
   const [lightboxIndex, setLightboxIndex] = useState(null);
-  const visibleImages = images.filter((img) => img?.url).slice(0, 12);
+  const visibleImages = images.filter((img) => img?.url).slice(0, LAYER_LAYOUT.length);
   const palette = (colors || []).filter(Boolean).slice(0, 5);
 
   if (!visibleImages.length) {
     return (
-      <div className="bg-white rounded-[1.5rem] border border-dashed border-[#E8E1DA] p-10 text-center text-gray-400 text-sm">
+      <div className="bg-white rounded-[1.75rem] border border-dashed border-[#E8E1DA] p-10 text-center text-gray-400 text-sm">
         No inspiration images yet. Check back soon or contact the studio.
       </div>
     );
   }
 
   const eyebrow = [title, eventType].filter(Boolean).join(" | ").toUpperCase();
-  const top = visibleImages.slice(0, 4);
-  const rest = visibleImages.slice(4);
 
   return (
     <>
-      <article className="bg-white rounded-[1.5rem] border border-[#E8E1DA]/80 shadow-[0_12px_40px_-24px_rgba(91,70,54,0.35)] overflow-hidden animate-[pageFadeIn_0.45s_ease-out]">
-        <header className="px-5 pt-5 pb-3 sm:px-6 sm:pt-6">
+      <article className="bg-white rounded-[1.75rem] border border-[#E8E1DA]/90 shadow-[0_18px_50px_-28px_rgba(40,30,20,0.45)] overflow-hidden animate-[pageFadeIn_0.45s_ease-out]">
+        <header className="px-5 pt-5 pb-2 sm:px-6 sm:pt-6">
           {eyebrow && (
-            <p className="text-[10px] sm:text-[11px] tracking-[0.14em] text-[#5B4636]/55 font-medium truncate">
+            <p className="text-[10px] sm:text-[11px] tracking-[0.14em] text-[#1a1a1a]/70 font-medium truncate">
               {eyebrow}
             </p>
           )}
           {subtitle && (
-            <h3 className="heading-serif text-xl sm:text-2xl text-[#5B4636] mt-1 leading-snug">
+            <h3 className="heading-serif text-xl sm:text-2xl text-[#1a1a1a] mt-1 leading-snug">
               {subtitle}
             </h3>
           )}
         </header>
 
-        <div className="px-3 pb-4 sm:px-4 sm:pb-5">
-          {/* Hero mosaic — fixed 2×2 placement, no empty holes */}
-          {top.length > 0 && (
-            <div className="grid grid-cols-4 grid-rows-2 gap-2 sm:gap-2.5 h-[260px] sm:h-[320px]">
-              {top[0] && (
-                <Tile
-                  img={top[0]}
-                  index={0}
-                  title={title}
-                  onOpen={setLightboxIndex}
-                  className="col-span-2 row-span-2"
-                />
-              )}
-              {top[1] && (
-                <Tile
-                  img={top[1]}
-                  index={1}
-                  title={title}
-                  onOpen={setLightboxIndex}
-                  className="col-span-1 row-span-1"
-                />
-              )}
-              {top[2] && (
-                <Tile
-                  img={top[2]}
-                  index={2}
-                  title={title}
-                  onOpen={setLightboxIndex}
-                  className="col-span-1 row-span-1"
-                />
-              )}
-              {top[3] && (
-                <Tile
-                  img={top[3]}
-                  index={3}
-                  title={title}
-                  onOpen={setLightboxIndex}
-                  className="col-span-2 row-span-1"
-                />
-              )}
-            </div>
-          )}
+        {/* Overlapping collage canvas */}
+        <div className="relative mx-3 mb-3 sm:mx-4 sm:mb-4 rounded-2xl bg-gradient-to-br from-[#f4f0ea] via-[#ebe4db] to-[#e2d8cc] overflow-hidden">
+          <div className="relative w-full" style={{ paddingBottom: "118%" }}>
+            {visibleImages.map((img, index) => {
+              const layout = LAYER_LAYOUT[index];
+              if (!layout) return null;
+              return (
+                <button
+                  key={img.id || index}
+                  type="button"
+                  onClick={() => setLightboxIndex(index)}
+                  className="absolute overflow-hidden rounded-lg bg-[#ddd5cb] shadow-[0_8px_24px_rgba(0,0,0,0.18)] ring-1 ring-black/5 transition-transform duration-300 hover:scale-[1.03] hover:z-20 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#A98B75]"
+                  style={{
+                    top: layout.top,
+                    left: layout.left,
+                    width: layout.width,
+                    height: layout.height,
+                    transform: `rotate(${layout.rotate})`,
+                    zIndex: layout.z,
+                  }}
+                >
+                  <img
+                    src={getThumbnailUrl(img.url, index === 0 ? 900 : 500, index === 0 ? 900 : 500)}
+                    alt={img.caption || img.themeName || title || "Inspiration"}
+                    loading={index < 5 ? "eager" : "lazy"}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    draggable={false}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          {rest.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mt-2 sm:mt-2.5">
-              {rest.map((img, i) => (
-                <Tile
-                  key={img.id || i + 4}
-                  img={img}
-                  index={i + 4}
-                  title={title}
-                  onOpen={setLightboxIndex}
-                  className="aspect-[4/3]"
+        {/* Compact color palette (reference: small chips, not tall bars) */}
+        {palette.length > 0 && (
+          <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+            <p className="text-[10px] tracking-[0.18em] uppercase text-[#1a1a1a]/45 font-medium mb-2">
+              Color palette
+            </p>
+            <div className="flex items-center gap-2">
+              {palette.map((hex) => (
+                <div
+                  key={hex}
+                  className="h-7 w-7 sm:h-8 sm:w-8 rounded-md border border-black/10 shadow-sm flex-shrink-0"
+                  style={{ backgroundColor: hex }}
+                  title={hex}
                 />
               ))}
             </div>
-          )}
-
-          {palette.length > 0 && (
-            <div className="mt-3 sm:mt-4">
-              <p className="text-[10px] tracking-[0.16em] uppercase text-[#5B4636]/45 font-medium mb-2 px-0.5">
-                Color palette
-              </p>
-              <div
-                className="grid gap-2 sm:gap-2.5"
-                style={{ gridTemplateColumns: `repeat(${palette.length}, minmax(0, 1fr))` }}
-              >
-                {palette.map((hex) => (
-                  <div
-                    key={hex}
-                    className="h-16 sm:h-20 md:h-24 rounded-xl border border-black/5"
-                    style={{ backgroundColor: hex }}
-                    title={hex}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </article>
 
       <ImageLightbox

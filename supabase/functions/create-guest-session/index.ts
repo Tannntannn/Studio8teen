@@ -33,12 +33,12 @@ function randomPassword(length = 32): string {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
-function normalizeEmail(email: string): string {
-  return String(email || "").trim().toLowerCase();
-}
-
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+function slugifyName(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 24) || "guest";
 }
 
 Deno.serve(async (req) => {
@@ -47,21 +47,13 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const fullName = String(body?.full_name || "").trim();
-    const phone = String(body?.phone || "").trim();
-    const email = normalizeEmail(body?.email);
 
     if (!fullName || fullName.length < 2) {
       return jsonResponse({ error: "Full name is required." }, 400);
     }
-    if (!phone || phone.length < 7) {
-      return jsonResponse({ error: "A valid phone number is required." }, 400);
-    }
-    if (!email || !isValidEmail(email)) {
-      return jsonResponse({ error: "A valid email is required." }, 400);
-    }
 
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    if (rateLimited(`email:${email}`) || rateLimited(`ip:${ip}`)) {
+    if (rateLimited(`ip:${ip}`, 12)) {
       return jsonResponse({ error: "Too many requests. Please wait a few minutes and try again." }, 429);
     }
 
@@ -75,73 +67,28 @@ Deno.serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: existingProfile } = await admin
-      .from("profiles")
-      .select("id, email, is_guest, guest_expires_at, claimed_at, role")
-      .eq("email", email)
-      .maybeSingle();
-
-    if (existingProfile && existingProfile.role === "admin") {
-      return jsonResponse({ error: "This email cannot be used for a quick session." }, 400);
-    }
-
-    if (existingProfile && !existingProfile.is_guest) {
-      return jsonResponse({
-        error: "An account already exists for this email. Please log in instead.",
-        code: "account_exists",
-      }, 409);
-    }
-
-    if (
-      existingProfile?.is_guest &&
-      !existingProfile.claimed_at &&
-      existingProfile.guest_expires_at &&
-      new Date(existingProfile.guest_expires_at).getTime() < Date.now()
-    ) {
-      const { error: deleteErr } = await admin.auth.admin.deleteUser(existingProfile.id);
-      if (deleteErr) {
-        console.error("Failed deleting expired guest:", deleteErr);
-        return jsonResponse({ error: "Could not recycle expired guest session. Try again." }, 500);
-      }
-    }
-
+    // Synthetic email — real email is collected later during walk-in booking contact step
+    const email = `walkin.${slugifyName(fullName)}.${crypto.randomUUID().slice(0, 8)}@guest.studio8teen.local`;
     const password = randomPassword();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    let userId = existingProfile?.id as string | undefined;
+    const { data: created, error: createErr } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, role: "client", is_guest: true },
+    });
 
-    if (existingProfile?.is_guest && !existingProfile.claimed_at) {
-      // Resume active guest: rotate password and refresh expiry
-      const { error: updateAuthErr } = await admin.auth.admin.updateUserById(existingProfile.id, {
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName, role: "client", is_guest: true },
-      });
-      if (updateAuthErr) {
-        console.error(updateAuthErr);
-        return jsonResponse({ error: "Could not resume guest session." }, 500);
-      }
-      userId = existingProfile.id;
-    } else {
-      const { data: created, error: createErr } = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName, role: "client", is_guest: true },
-      });
-      if (createErr || !created?.user) {
-        console.error(createErr);
-        const msg = createErr?.message?.toLowerCase().includes("already")
-          ? "An account already exists for this email. Please log in instead."
-          : createErr?.message || "Could not create guest session.";
-        return jsonResponse({ error: msg }, 400);
-      }
-      userId = created.user.id;
+    if (createErr || !created?.user) {
+      console.error(createErr);
+      return jsonResponse({ error: createErr?.message || "Could not create guest session." }, 400);
     }
+
+    const userId = created.user.id;
 
     const { error: profileErr } = await admin.from("profiles").update({
       full_name: fullName,
-      phone,
+      phone: null,
       email,
       is_guest: true,
       guest_expires_at: expiresAt,
@@ -160,7 +107,7 @@ Deno.serve(async (req) => {
 
     if (signInErr || !sessionData?.session) {
       console.error(signInErr);
-      return jsonResponse({ error: "Guest created but sign-in failed. Try logging in later." }, 500);
+      return jsonResponse({ error: "Guest created but sign-in failed. Try again." }, 500);
     }
 
     return jsonResponse({

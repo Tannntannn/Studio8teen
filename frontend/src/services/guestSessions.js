@@ -14,15 +14,11 @@ async function readFunctionError(error) {
 }
 
 /**
- * Create or resume a guest quick session and establish a local auth session.
+ * Create a walk-in guest session from a name only and establish a local auth session.
  */
-export async function startGuestSession({ fullName, phone, email }) {
+export async function startGuestSession({ fullName }) {
   const { data, error } = await supabase.functions.invoke("create-guest-session", {
-    body: {
-      full_name: fullName,
-      phone,
-      email,
-    },
+    body: { full_name: fullName },
   });
 
   if (error) throw new Error(await readFunctionError(error));

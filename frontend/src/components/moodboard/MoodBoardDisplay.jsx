@@ -53,7 +53,7 @@ function Section({ icon: Icon, title, children }) {
 }
 
 export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAggregated, isPersonalized }) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const images = theme.inspiration_images || [];
   const tags = asStringArray(theme.tags);
   const colors = asColorArray(theme.color_palette);

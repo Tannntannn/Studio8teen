@@ -1,5 +1,5 @@
 import { AVAILABILITY_COLORS, getDayStatus } from "../../lib/availabilityUtils";
-import { localDateISO } from "../../lib/dateUtils";
+import { areAllTimeSlotsPast, localDateISO } from "../../lib/dateUtils";
 
 const DAY_STYLES = {
   available: `${AVAILABILITY_COLORS.available} cursor-pointer`,
@@ -23,6 +23,7 @@ export default function BookingDatePicker({
   onSelectDate,
   minDate = null,
   maxDate = null,
+  allSlotTimes = [],
 }) {
   const [y, m] = month.split("-").map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
@@ -86,6 +87,28 @@ export default function BookingDatePicker({
           const isBeyondMax = maxDate ? date > maxDate : false;
           const slots = availabilityByDate[date] || [];
           let status = isPast || isBeyondMax ? "past" : slots.length ? getDayStatus(slots) : "available";
+
+          // Today with every studio slot already passed → disable for clients
+          if (!isPast && !isBeyondMax && date === today) {
+            const times =
+              (allSlotTimes || []).length > 0
+                ? allSlotTimes
+                : slots.map((s) => s.time_slot).filter(Boolean);
+            if (times.length && areAllTimeSlotsPast(times)) {
+              status = "past";
+            } else if (slots.length) {
+              const hasBookableFuture = slots.some(
+                (s) =>
+                  s.is_enabled !== false &&
+                  s.booked_count < s.capacity &&
+                  !areAllTimeSlotsPast([s.time_slot])
+              );
+              if (!hasBookableFuture) {
+                status = getDayStatus(slots) === "full" ? "full" : "past";
+              }
+            }
+          }
+
           const selectable = !isPast && !isBeyondMax && (status === "available" || status === "partial");
           const isSelected = selectedDate === date;
 
@@ -97,19 +120,24 @@ export default function BookingDatePicker({
               onClick={() => selectable && onSelectDate(date)}
               className={`aspect-square rounded-xl border text-sm font-semibold transition flex flex-col items-center justify-center ${DAY_STYLES[status]} ${isSelected ? DAY_STYLES.selected : ""}`}
               title={
-                status === "full"
-                  ? "Fully booked"
-                  : status === "closed"
-                    ? "Closed"
-                    : status === "partial"
-                      ? "Some slots booked — limited availability"
-                      : date
+                status === "past" && date === today
+                  ? "All time slots for today have passed"
+                  : status === "full"
+                    ? "Fully booked"
+                    : status === "closed"
+                      ? "Closed"
+                      : status === "partial"
+                        ? "Some slots booked — limited availability"
+                        : date
               }
             >
               <span>{day}</span>
               {status === "full" && <span className="text-[8px] leading-none mt-0.5 font-bold">Full</span>}
               {status === "partial" && !isSelected && (
                 <span className="text-[8px] leading-none mt-0.5 font-bold">Ltd</span>
+              )}
+              {status === "past" && date === today && (
+                <span className="text-[8px] leading-none mt-0.5 font-bold">Done</span>
               )}
             </button>
           );

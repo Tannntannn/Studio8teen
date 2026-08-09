@@ -22,6 +22,7 @@ import { getThumbnailUrl } from "../../lib/cloudinary";
 import { localDateISO } from "../../lib/dateUtils";
 import Swal from "sweetalert2";
 import { generateAndSaveBookingCollage } from "../../services/moodBoardSession";
+import { updateProfile } from "../../services/profiles";
 
 function formatLongDate(iso) {
   if (!iso) return "";
@@ -43,10 +44,12 @@ export default function CreateBooking() {
     defaultValues: {
       contact_number: profile?.phone || "",
       client_address: profile?.address || "",
+      contact_email: "",
       event_date: "",
       time_slot: "",
       package_id: packageFromUrl || "",
       booking_mode: modeFromUrl === "walk_in" || isGuest ? "walk_in" : "scheduled",
+      location: "Studio 8Teen",
     },
   });
   const [packages, setPackages] = useState([]);
@@ -179,6 +182,16 @@ export default function CreateBooking() {
         return { name, price: a?.price || 0 };
       });
 
+      // Walk-in / guest: save contact info on profile before booking (admin uses this to confirm)
+      if (isGuest || data.booking_mode === "walk_in") {
+        await updateProfile(user.id, {
+          phone: data.contact_number,
+          address: data.client_address,
+          email: data.contact_email || undefined,
+          full_name: profile?.full_name,
+        });
+      }
+
       const booking = await createBooking({
         client_id: user.id,
         package_id: data.package_id,
@@ -201,6 +214,17 @@ export default function CreateBooking() {
       } catch (collageErr) {
         console.warn("Collage generation skipped:", collageErr?.message || collageErr);
       }
+
+      Swal.fire({
+        icon: "success",
+        title: data.booking_mode === "walk_in" ? "Walk-in request submitted" : "Booking submitted",
+        text:
+          data.booking_mode === "walk_in"
+            ? "The studio will confirm your walk-in after reviewing your details and payment."
+            : "Upload payment proof next so the studio can confirm your booking.",
+        timer: 2800,
+        showConfirmButton: false,
+      });
 
       navigate(`/client-bookings/${booking.id}`);
     } catch (err) {
@@ -322,9 +346,90 @@ export default function CreateBooking() {
             )}
           </div>
 
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-4 shadow-sm">
+            <h2 className="font-semibold text-[#5B4636] text-lg">
+              {isGuest || bookingMode === "walk_in" ? "2. Contact information" : "2. Your details"}
+            </h2>
+            {(isGuest || bookingMode === "walk_in") && (
+              <p className="text-sm text-sky-800 bg-sky-50 border border-sky-100 rounded-xl px-4 py-3">
+                Walk-in / guest — fill in your phone, email, and address so the studio can confirm your booking.
+                {profile?.full_name ? (
+                  <> Booking as <strong>{profile.full_name}</strong>.</>
+                ) : null}
+              </p>
+            )}
+            {(isGuest || bookingMode === "walk_in") && (
+              <div>
+                <label className="block mb-2 text-sm font-medium text-gray-700">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  {...register("contact_email", {
+                    required: "Email is required for walk-in bookings",
+                    pattern: {
+                      value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                      message: "Enter a valid email",
+                    },
+                  })}
+                  placeholder="you@email.com"
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+                />
+                {errors.contact_email && (
+                  <p className="text-red-500 text-xs mt-1">{errors.contact_email.message}</p>
+                )}
+              </div>
+            )}
+            <div>
+              <label className="block mb-2 text-sm font-medium text-gray-700">Event Location</label>
+              <input {...register("location", { required: "Enter location" })} placeholder="Studio or outdoor location" className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]" />
+              {errors.location && <p className="text-red-500 text-xs mt-1">{errors.location.message}</p>}
+            </div>
+            <div>
+              <label className="block mb-2 text-sm font-medium text-gray-700">
+                Contact Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="tel"
+                {...register("contact_number", {
+                  required: "Contact number is required",
+                  pattern: { value: /^[\d\s+\-()]{7,20}$/, message: "Enter a valid phone number" },
+                })}
+                placeholder="09XX XXX XXXX"
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+              />
+              {errors.contact_number && <p className="text-red-500 text-xs mt-1">{errors.contact_number.message}</p>}
+            </div>
+            <div>
+              <label className="block mb-2 text-sm font-medium text-gray-700">
+                Address <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={2}
+                {...register("client_address", { required: "Address is required" })}
+                placeholder="Full address"
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]"
+              />
+              {errors.client_address && <p className="text-red-500 text-xs mt-1">{errors.client_address.message}</p>}
+            </div>
+            <div>
+              <label className="block mb-2 text-sm font-medium text-gray-700">Session notes / preferences</label>
+              <textarea rows={3} {...register("notes")} placeholder="Tell us about your vibe, outfit ideas, or special requests..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
+            </div>
+            <p className="text-xs text-gray-500">
+              By submitting a booking you agree to our{" "}
+              <a href="/terms" target="_blank" rel="noreferrer" className="text-[#A98B75] font-medium hover:underline">
+                Terms and Conditions
+              </a>
+              .
+            </p>
+          </div>
+
           {/* DentaBase-style calendar + details panel */}
           <div>
-            <h2 className="font-semibold text-[#5B4636] text-lg mb-3">2. Schedule</h2>
+            <h2 className="font-semibold text-[#5B4636] text-lg mb-3">
+              {isGuest || bookingMode === "walk_in" ? "3. Schedule (today)" : "3. Schedule"}
+            </h2>
             <div className="grid lg:grid-cols-2 gap-5">
               <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 md:p-6 shadow-sm">
                 <input type="hidden" {...register("event_date", { required: "Select a date" })} />
@@ -336,6 +441,7 @@ export default function CreateBooking() {
                   onSelectDate={handleSelectDate}
                   minDate={bookingMode === "walk_in" ? todayIso : null}
                   maxDate={bookingMode === "walk_in" ? todayIso : null}
+                  allSlotTimes={timeSlotTimes}
                 />
                 {errors.event_date && <p className="text-red-500 text-xs mt-2">{errors.event_date.message}</p>}
               </div>
@@ -377,49 +483,6 @@ export default function CreateBooking() {
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-4 shadow-sm">
-            <h2 className="font-semibold text-[#5B4636] text-lg">3. Your details</h2>
-            <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Event Location</label>
-              <input {...register("location", { required: "Enter location" })} placeholder="Studio or outdoor location" className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]" />
-              {errors.location && <p className="text-red-500 text-xs mt-1">{errors.location.message}</p>}
-            </div>
-            <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Contact Number</label>
-              <input
-                type="tel"
-                {...register("contact_number", {
-                  required: "Contact number is required",
-                  pattern: { value: /^[\d\s+\-()]{7,20}$/, message: "Enter a valid phone number" },
-                })}
-                placeholder="09XX XXX XXXX"
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
-              />
-              {errors.contact_number && <p className="text-red-500 text-xs mt-1">{errors.contact_number.message}</p>}
-            </div>
-            <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Address</label>
-              <textarea
-                rows={2}
-                {...register("client_address", { required: "Address is required" })}
-                placeholder="Full address"
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]"
-              />
-              {errors.client_address && <p className="text-red-500 text-xs mt-1">{errors.client_address.message}</p>}
-            </div>
-            <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Session notes / preferences</label>
-              <textarea rows={3} {...register("notes")} placeholder="Tell us about your vibe, outfit ideas, or special requests..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
-            </div>
-            <p className="text-xs text-gray-500">
-              By submitting a booking you agree to our{" "}
-              <a href="/terms" target="_blank" rel="noreferrer" className="text-[#A98B75] font-medium hover:underline">
-                Terms and Conditions
-              </a>
-              .
-            </p>
           </div>
 
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 shadow-sm">
