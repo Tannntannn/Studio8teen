@@ -106,7 +106,8 @@ export default function MoodBoardGenerator() {
 
   return (
     <ClientLayout>
-      <div className="max-w-4xl mx-auto w-full">
+      <div className="max-w-3xl mx-auto w-full">
+        {!generated && (
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#A98B75]/15 text-[#A98B75] mb-4">
             <FaPalette size={22} />
@@ -117,6 +118,7 @@ export default function MoodBoardGenerator() {
             into a visual mood board collage tailored to your session.
           </p>
         </div>
+        )}
 
         {loadError && !generated && (
           <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 mb-6 text-amber-800 text-sm text-center">
@@ -257,14 +259,17 @@ export default function MoodBoardGenerator() {
         )}
 
         {generated && (
-          <div className="space-y-6">
-            <div className="flex justify-center">
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-3 px-1">
+              <h1 className="heading-serif text-2xl sm:text-3xl font-bold text-[#5B4636]">
+                Latest inspiration
+              </h1>
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#A98B75] text-[#A98B75] text-sm font-medium hover:bg-[#A98B75]/10"
+                className="inline-flex items-center gap-2 text-sm font-medium text-[#A98B75] hover:text-[#8a7260]"
               >
-                <FaRedo size={12} /> Start over
+                <FaRedo size={11} /> Start over
               </button>
             </div>
             <MoodBoardDisplay
