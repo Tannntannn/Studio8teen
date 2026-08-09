@@ -8,7 +8,12 @@ export async function getProfile(userId) {
 }
 
 export async function updateProfile(userId, updates) {
-  const { role: _role, id: _id, ...safe } = updates || {};
+  const {
+    role: _role,
+    id: _id,
+    email: _email,
+    ...safe
+  } = updates || {};
   const { data, error } = await supabase.from("profiles").update(safe).eq("id", userId).select().single();
   if (error) throw error;
   return data;

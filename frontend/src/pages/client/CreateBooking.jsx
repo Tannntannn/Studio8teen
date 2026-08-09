@@ -21,6 +21,7 @@ import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { localDateISO } from "../../lib/dateUtils";
 import Swal from "sweetalert2";
+import { generateAndSaveBookingCollage } from "../../services/moodBoardSession";
 
 function formatLongDate(iso) {
   if (!iso) return "";
@@ -33,10 +34,11 @@ function formatLongDate(iso) {
 }
 
 export default function CreateBooking() {
-  const { user, profile } = useAuth();
+  const { user, profile, isGuest } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const packageFromUrl = searchParams.get("package");
+  const modeFromUrl = searchParams.get("mode");
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm({
     defaultValues: {
       contact_number: profile?.phone || "",
@@ -44,7 +46,7 @@ export default function CreateBooking() {
       event_date: "",
       time_slot: "",
       package_id: packageFromUrl || "",
-      booking_mode: "scheduled",
+      booking_mode: modeFromUrl === "walk_in" || isGuest ? "walk_in" : "scheduled",
     },
   });
   const [packages, setPackages] = useState([]);
@@ -91,6 +93,12 @@ export default function CreateBooking() {
       .catch(console.error);
     getTimeSlots().then(setTimeSlotTimes).catch(() => {});
   }, [packageFromUrl, setValue]);
+
+  useEffect(() => {
+    if ((isGuest || modeFromUrl === "walk_in") && allowsWalkIn) {
+      setValue("booking_mode", "walk_in", { shouldValidate: true });
+    }
+  }, [isGuest, modeFromUrl, allowsWalkIn, setValue]);
 
   useEffect(() => {
     if (bookingMode === "walk_in") {
@@ -184,6 +192,16 @@ export default function CreateBooking() {
         addons_total: addonsTotal,
         is_walk_in: data.booking_mode === "walk_in",
       });
+
+      try {
+        await generateAndSaveBookingCollage(booking.id, user.id, {
+          packageName: selectedPackage?.name,
+          notes: data.notes,
+        });
+      } catch (collageErr) {
+        console.warn("Collage generation skipped:", collageErr?.message || collageErr);
+      }
+
       navigate(`/client-bookings/${booking.id}`);
     } catch (err) {
       const msg = err.message?.includes("slot_full") || err.message?.includes("fully booked")
@@ -266,30 +284,40 @@ export default function CreateBooking() {
             {allowsWalkIn && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Booking type</p>
-                <div className="grid sm:grid-cols-2 gap-2">
-                  {[
-                    { value: "scheduled", label: "Scheduled", hint: "Pick any open future date" },
-                    { value: "walk_in", label: "Walk-in", hint: "Same-day session only" },
-                  ].map((opt) => (
-                    <label
-                      key={opt.value}
-                      className={`rounded-xl border px-4 py-3 cursor-pointer transition ${
-                        bookingMode === opt.value
-                          ? "border-[#A98B75] bg-[#A98B75]/10"
-                          : "border-[#E8E1DA] hover:bg-[#F8F6F3]"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        value={opt.value}
-                        {...register("booking_mode")}
-                        className="sr-only"
-                      />
-                      <span className="block text-sm font-semibold text-[#5B4636]">{opt.label}</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">{opt.hint}</span>
-                    </label>
-                  ))}
-                </div>
+                {isGuest ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+                    <span className="block text-sm font-semibold text-sky-900">Walk-in (same day)</span>
+                    <span className="block text-xs text-sky-800 mt-0.5">
+                      Guest sessions book today only. Create a password later to schedule future dates.
+                    </span>
+                    <input type="hidden" value="walk_in" {...register("booking_mode")} />
+                  </div>
+                ) : (
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {[
+                      { value: "scheduled", label: "Scheduled", hint: "Pick any open future date" },
+                      { value: "walk_in", label: "Walk-in", hint: "Same-day session only" },
+                    ].map((opt) => (
+                      <label
+                        key={opt.value}
+                        className={`rounded-xl border px-4 py-3 cursor-pointer transition ${
+                          bookingMode === opt.value
+                            ? "border-[#A98B75] bg-[#A98B75]/10"
+                            : "border-[#E8E1DA] hover:bg-[#F8F6F3]"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          value={opt.value}
+                          {...register("booking_mode")}
+                          className="sr-only"
+                        />
+                        <span className="block text-sm font-semibold text-[#5B4636]">{opt.label}</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">{opt.hint}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

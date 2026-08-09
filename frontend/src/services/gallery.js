@@ -79,10 +79,18 @@ export async function getMoodBoard(bookingId) {
   return data;
 }
 
-export async function upsertMoodBoard(bookingId, clientId, items) {
+export async function upsertMoodBoard(bookingId, clientId, items, collage = undefined) {
+  const payload = {
+    booking_id: bookingId,
+    client_id: clientId,
+    items: items || [],
+  };
+  if (collage !== undefined) {
+    payload.collage = collage;
+  }
   const { data, error } = await supabase
     .from("mood_boards")
-    .upsert({ booking_id: bookingId, client_id: clientId, items }, { onConflict: "booking_id" })
+    .upsert(payload, { onConflict: "booking_id" })
     .select()
     .single();
   if (error) throw error;

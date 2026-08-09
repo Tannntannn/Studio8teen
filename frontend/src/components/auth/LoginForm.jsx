@@ -95,6 +95,19 @@ function LoginForm() {
         Don&apos;t have an account?{" "}
         <Link to={registerLink} className="text-[#A98B75] font-semibold hover:underline">Register</Link>
       </p>
+      <p className="text-center text-gray-500 mt-3 text-sm">
+        Visiting the studio today?{" "}
+        <Link
+          to={
+            redirectParam
+              ? `/quick-session?redirect=${encodeURIComponent(redirectParam)}`
+              : "/quick-session"
+          }
+          className="text-[#A98B75] font-semibold hover:underline"
+        >
+          Start a quick session
+        </Link>
+      </p>
     </div>
   );
 }

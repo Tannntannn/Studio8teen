@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import AdminLayout from "../../components/layout/AdminLayout";
 import { getProfile } from "../../services/profiles";
 import { getClientBookings } from "../../services/bookings";
+import { guestDaysRemaining } from "../../services/guestSessions";
 
 const STATUS_COLORS = {
   awaiting_payment: "bg-amber-100 text-amber-700",
@@ -34,14 +35,43 @@ export default function AdminClientDetail() {
     );
   }
 
+  const isGuest = Boolean(client.is_guest && !client.claimed_at);
+  const days = guestDaysRemaining(client.guest_expires_at);
+
   return (
     <AdminLayout>
       <div className="max-w-5xl mx-auto">
         <Link to="/admin/clients" className="text-[#A98B75] text-sm hover:underline">← Back to clients</Link>
 
         <div className="mt-6 bg-white rounded-2xl border border-[#E8E1DA] p-6 mb-6">
-          <h1 className="heading-serif text-3xl font-bold text-[#5B4636]">{client.full_name || "Unnamed client"}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="heading-serif text-3xl font-bold text-[#5B4636]">{client.full_name || "Unnamed client"}</h1>
+            {isGuest ? (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 font-medium">Guest</span>
+            ) : (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-[#F8F6F3] text-[#5B4636] font-medium border border-[#E8E1DA]">
+                Registered
+              </span>
+            )}
+          </div>
           <p className="text-gray-500 mt-1">{client.email}</p>
+          {isGuest && (
+            <p className="text-sm text-sky-800 bg-sky-50 border border-sky-100 rounded-xl px-4 py-2 mt-3 inline-block">
+              {days == null
+                ? "Guest session — expiry unknown"
+                : days === 0
+                  ? "Guest session expires today if not claimed"
+                  : `Guest session expires in about ${days} day${days === 1 ? "" : "s"}`}
+              {client.guest_expires_at
+                ? ` (${new Date(client.guest_expires_at).toLocaleString()})`
+                : ""}
+            </p>
+          )}
+          {client.claimed_at && (
+            <p className="text-xs text-gray-400 mt-2">
+              Claimed account on {new Date(client.claimed_at).toLocaleString()}
+            </p>
+          )}
           <div className="grid sm:grid-cols-3 gap-4 mt-6 text-sm">
             <div className="bg-[#F8F6F3] rounded-xl p-4">
               <p className="text-gray-400">Phone</p>

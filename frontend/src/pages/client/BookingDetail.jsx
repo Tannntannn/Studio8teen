@@ -1,33 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Swal from "sweetalert2";
+import { FaDownload, FaQrcode, FaTrash, FaUpload } from "react-icons/fa";
+import QRCode from "qrcode";
 import ClientLayout from "../../components/layout/ClientLayout";
 import PaymentSection from "../../components/booking/PaymentSection";
 import CancellationFeeSection from "../../components/booking/CancellationFeeSection";
+import MoodBoardCollage from "../../components/moodboard/MoodBoardCollage";
 import { useAuth } from "../../context/AuthContext";
 import { getBooking, requestCancellation, cancelBookingFree } from "../../services/bookings";
-import { getChecklist, updateChecklist } from "../../services/gallery";
+import { getChecklist, updateChecklist, getMoodBoard, getThumbnailUrl } from "../../services/gallery";
+import {
+  generateAndSaveBookingCollage,
+  uploadMoodBoardReference,
+  removeMoodBoardReference,
+} from "../../services/moodBoardSession";
 import { getChecklistProgress, getChecklistTasks, formatCheckedAt } from "../../lib/checklist";
 import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../lib/bookingReceipt";
 import { CANCELLATION_FEE } from "../../lib/constants";
 import { formatTime12h } from "../../lib/dateUtils";
-import { FaDownload, FaQrcode } from "react-icons/fa";
-import QRCode from "qrcode";
 
 export default function BookingDetail() {
   const { id } = useParams();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const [booking, setBooking] = useState(null);
   const [checklist, setChecklist] = useState(null);
+  const [moodBoard, setMoodBoard] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [downloadingQr, setDownloadingQr] = useState(false);
+  const [uploadingRef, setUploadingRef] = useState(false);
+  const [generatingCollage, setGeneratingCollage] = useState(false);
+  const fileRef = useRef(null);
 
   const load = () => {
     getBooking(id).then(async (b) => {
       setBooking(b);
-      const cl = await getChecklist(id);
+      const [cl, mb] = await Promise.all([getChecklist(id), getMoodBoard(id)]);
       setChecklist(cl);
+      setMoodBoard(mb);
       if (b.qr_token && ["confirmed", "completed"].includes(b.status)) {
         const verifyUrl = `${window.location.origin}/verify/${b.qr_token}`;
         QRCode.toDataURL(verifyUrl, { width: 200 }).then(setQrDataUrl);
@@ -127,6 +138,59 @@ export default function BookingDetail() {
     }
   };
 
+  const handleGenerateCollage = async () => {
+    if (!user?.id) return;
+    setGeneratingCollage(true);
+    try {
+      const saved = await generateAndSaveBookingCollage(id, user.id, {
+        packageName: booking?.packages?.name,
+        notes: booking?.notes,
+      });
+      if (!saved?.collage) {
+        Swal.fire({
+          icon: "info",
+          title: "No inspiration yet",
+          text: "The studio inspiration library does not have enough photos for a collage yet.",
+        });
+      } else {
+        setMoodBoard(saved);
+      }
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Could not generate collage", text: err.message });
+    } finally {
+      setGeneratingCollage(false);
+    }
+  };
+
+  const handleUploadRefs = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length || !user?.id) return;
+    setUploadingRef(true);
+    try {
+      let latest = moodBoard;
+      for (const file of files) {
+        latest = await uploadMoodBoardReference(id, user.id, file);
+      }
+      setMoodBoard(latest);
+      Swal.fire({ icon: "success", title: "Reference photos added", timer: 1600, showConfirmButton: false });
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Upload failed", text: err.message });
+    } finally {
+      setUploadingRef(false);
+    }
+  };
+
+  const handleRemoveRef = async (itemId) => {
+    if (!user?.id) return;
+    try {
+      const updated = await removeMoodBoardReference(id, user.id, itemId);
+      setMoodBoard(updated);
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Could not remove photo", text: err.message });
+    }
+  };
+
   if (!booking) {
     return (
       <ClientLayout>
@@ -139,6 +203,8 @@ export default function BookingDetail() {
   const { checked, total, percent } = getChecklistProgress(tasks);
   const cancellation = booking.cancellations?.[0];
   const inCancellationFlow = ["cancellation_pending", "cancellation_submitted"].includes(booking.status);
+  const collage = moodBoard?.collage;
+  const refItems = Array.isArray(moodBoard?.items) ? moodBoard.items : [];
 
   return (
     <ClientLayout>
@@ -153,6 +219,11 @@ export default function BookingDetail() {
           <span className="inline-block mt-2 text-xs px-3 py-1 rounded-full bg-[#A98B75]/10 text-[#A98B75] font-medium capitalize">
             {booking.status.replace(/_/g, " ")}
           </span>
+          {booking.is_walk_in && (
+            <span className="inline-block mt-2 ml-2 text-xs px-3 py-1 rounded-full bg-sky-100 text-sky-800 font-medium">
+              Walk-in
+            </span>
+          )}
           {!inCancellationFlow && booking.status !== "cancelled" && !bookingHasQr(booking) && (
             <button
               type="button"
@@ -166,6 +237,83 @@ export default function BookingDetail() {
         </div>
 
         <div className="space-y-6">
+          {!inCancellationFlow && booking.status !== "cancelled" && (
+            <div className="space-y-4">
+              {collage?.images?.length > 0 ? (
+                <MoodBoardCollage
+                  title={collage.name || "Your mood board"}
+                  subtitle={`${collage.event_type || "Session"} inspiration`}
+                  images={collage.images}
+                  colors={collage.colors || []}
+                  eventType={collage.event_type}
+                />
+              ) : (
+                <div className="bg-white rounded-2xl border border-dashed border-[#E8E1DA] p-6 text-center">
+                  <h3 className="font-semibold text-[#5B4636]">Mood board collage</h3>
+                  <p className="text-sm text-gray-500 mt-2 mb-4">
+                    Generate a visual collage from the studio&apos;s inspiration library for this session.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateCollage}
+                    disabled={generatingCollage}
+                    className="px-5 py-2.5 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260] disabled:opacity-50"
+                  >
+                    {generatingCollage ? "Generating..." : "Generate collage"}
+                  </button>
+                </div>
+              )}
+
+              <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="font-semibold text-[#5B4636]">Your reference photos</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Upload looks you want the studio to match.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploadingRef}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[#A98B75] text-[#A98B75] text-sm font-medium hover:bg-[#A98B75]/10 disabled:opacity-50"
+                  >
+                    <FaUpload size={12} /> {uploadingRef ? "Uploading..." : "Upload"}
+                  </button>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleUploadRefs}
+                  />
+                </div>
+                {refItems.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">No reference photos yet.</p>
+                ) : (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {refItems.map((item) => (
+                      <div key={item.id} className="relative aspect-square rounded-xl overflow-hidden bg-[#F8F6F3] group">
+                        <img
+                          src={getThumbnailUrl(item.url, 300, 300)}
+                          alt={item.caption || "Reference"}
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveRef(item.id)}
+                          className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                          aria-label="Remove photo"
+                        >
+                          <FaTrash size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {inCancellationFlow && cancellation && (
             <div className="bg-white rounded-2xl border border-amber-200 p-6">
               <CancellationFeeSection booking={booking} cancellation={cancellation} onUpdate={load} />

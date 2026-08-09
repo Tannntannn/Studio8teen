@@ -37,6 +37,13 @@ function Packages() {
     return `/login?redirect=${encodeURIComponent(bookingPath)}`;
   };
 
+  const walkInLink = (pkg) => {
+    const bookingPath = `${bookingPathForPackage(pkg.id)}&mode=walk_in`;
+    if (user && profile?.role === "client") return bookingPath;
+    if (user && profile?.role === "admin") return "/admin/packages";
+    return `/quick-session?package=${encodeURIComponent(pkg.id)}`;
+  };
+
   return (
     <section id="packages" className="py-20 md:py-28 bg-[#F8F6F3] scroll-mt-20">
       <div className="max-w-7xl mx-auto px-6">
@@ -114,6 +121,14 @@ function Packages() {
                   >
                     Book Now
                   </Link>
+                  {pkg.allows_walk_in && (
+                    <Link
+                      to={walkInLink(pkg)}
+                      className="mt-2 w-full py-2.5 rounded-full font-medium text-sm transition-all duration-300 flex items-center justify-center border border-sky-200 text-sky-800 bg-sky-50 hover:bg-sky-100"
+                    >
+                      Walk in today
+                    </Link>
+                  )}
                 </div>
               </div>
             ))}

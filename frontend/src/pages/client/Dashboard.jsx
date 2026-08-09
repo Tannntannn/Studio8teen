@@ -8,12 +8,15 @@ import { getUnreadCount } from "../../services/notifications";
 import { getClientGallery } from "../../services/gallery";
 import { useAuth } from "../../context/AuthContext";
 import { downloadBookingReceipt } from "../../lib/bookingReceipt";
+import { guestDaysRemaining } from "../../services/guestSessions";
 
 export default function Dashboard() {
-  const { user, profile } = useAuth();
+  const { user, profile, isGuest } = useAuth();
   const [stats, setStats] = useState({ bookings: 0, upcoming: 0, gallery: 0, notifications: 0 });
   const [latestBooking, setLatestBooking] = useState(null);
   const [downloading, setDownloading] = useState(false);
+
+  const daysLeft = guestDaysRemaining(profile?.guest_expires_at);
 
   useEffect(() => {
     if (!user) return;
@@ -47,8 +50,31 @@ export default function Dashboard() {
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">
             Welcome{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}
           </h1>
-          <p className="mt-2 text-gray-500">Your Studio 8Teen client dashboard.</p>
+          <p className="mt-2 text-gray-500">
+            {isGuest ? "Your Studio 8Teen guest session." : "Your Studio 8Teen client dashboard."}
+          </p>
         </div>
+
+        {isGuest && (
+          <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 p-5 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold text-sky-900">Guest session</p>
+              <p className="text-sm text-sky-800 mt-1">
+                {daysLeft == null
+                  ? "Create a password to keep your bookings and mood board permanently."
+                  : daysLeft === 0
+                    ? "Your session expires today. Create a password to keep your photos and bookings."
+                    : `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} left before this session is deleted.`}
+              </p>
+            </div>
+            <Link
+              to="/claim-account"
+              className="px-5 py-2.5 rounded-xl bg-[#5B4636] text-white text-sm font-medium hover:bg-[#4a3829] transition"
+            >
+              Create password
+            </Link>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {cards.map((card) => {

@@ -37,7 +37,6 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchProfile(session.user.id);
-        // Soft init only — Allow popup is shown on client pages
         void initOneSignal(session.user.id);
       }
       setLoading(false);
@@ -90,7 +89,6 @@ export function AuthProvider({ children }) {
     }
     if (data.user) {
       await fetchProfile(data.user.id);
-      // Soft init — Allow modal is shown by ClientLayout after navigation
       void initOneSignal(data.user.id);
     }
     return data;
@@ -103,7 +101,20 @@ export function AuthProvider({ children }) {
     setProfile(null);
   };
 
-  const refreshProfile = () => user && fetchProfile(user.id);
+  const refreshProfile = async () => {
+    const {
+      data: { user: current },
+    } = await supabase.auth.getUser();
+    if (!current) {
+      setUser(null);
+      setProfile(null);
+      return null;
+    }
+    setUser(current);
+    return fetchProfile(current.id);
+  };
+
+  const isGuest = Boolean(profile?.is_guest && !profile?.claimed_at);
 
   return (
     <AuthContext.Provider
@@ -113,6 +124,7 @@ export function AuthProvider({ children }) {
         loading,
         isAdmin: profile?.role === "admin",
         isClient: profile?.role === "client",
+        isGuest,
         signUp,
         signIn,
         signOut,

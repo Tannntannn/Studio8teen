@@ -8,6 +8,8 @@ import Login from "./pages/authpage/Login";
 import Register from "./pages/authpage/Register";
 import ForgotPass from "./pages/authpage/ForgotPass";
 import ResetPassword from "./pages/authpage/ResetPassword";
+import QuickSession from "./pages/authpage/QuickSession";
+import ClaimAccount from "./pages/authpage/ClaimAccount";
 import ClientPortfolio from "./pages/public/ClientPortfolio";
 import Terms from "./pages/public/Terms";
 import VerifyBooking from "./pages/public/VerifyBooking";
@@ -58,6 +60,8 @@ function AppRoutes() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPass />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/quick-session" element={<QuickSession />} />
+        <Route path="/claim-account" element={<ProtectedRoute role="client"><ClaimAccount /></ProtectedRoute>} />
         <Route path="/client-portfolio" element={<ClientPortfolio />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/verify/:token" element={<VerifyBooking />} />
