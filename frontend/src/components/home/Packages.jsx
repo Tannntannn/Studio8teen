@@ -63,12 +63,14 @@ function Packages() {
         </ScrollReveal>
 
         <ScrollReveal delay={200}>
-          <div className="flex gap-5 overflow-x-auto pb-6 pt-4 snap-x snap-mandatory sm:grid sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 sm:overflow-visible sm:pb-0 sm:pt-0">
+          <div className="flex gap-5 overflow-x-auto pb-6 pt-4 snap-x snap-mandatory sm:grid sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 sm:gap-6 sm:gap-y-8 sm:overflow-visible sm:pb-0 sm:pt-2 sm:items-stretch">
             {packages.map((pkg) => (
               <div
                 key={pkg.id}
-                className={`relative flex-shrink-0 w-[85vw] max-w-[320px] snap-center sm:w-auto sm:max-w-none bg-white rounded-2xl transition-all duration-500 hover:-translate-y-2 overflow-hidden ${
-                  pkg.is_popular ? "shadow-xl ring-2 ring-[#A98B75] sm:xl:scale-105 sm:mt-2" : "shadow-sm hover:shadow-xl"
+                className={`relative flex flex-col flex-shrink-0 w-[85vw] max-w-[320px] snap-center sm:w-auto sm:max-w-none sm:h-full bg-white rounded-2xl transition-shadow duration-300 overflow-hidden ${
+                  pkg.is_popular
+                    ? "shadow-xl ring-2 ring-[#A98B75]"
+                    : "shadow-sm hover:shadow-xl"
                 }`}
               >
                 {pkg.is_popular && (
@@ -76,7 +78,7 @@ function Packages() {
                     Most Popular
                   </span>
                 )}
-                <div className="aspect-[4/3] bg-[#F8F6F3]">
+                <div className="aspect-[4/3] shrink-0 bg-[#F8F6F3]">
                   {pkg.image_url ? (
                     <img
                       src={getThumbnailUrl(pkg.image_url, 480, 360)}
@@ -90,13 +92,13 @@ function Packages() {
                     </div>
                   )}
                 </div>
-                <div className="p-6">
+                <div className="p-6 flex flex-col flex-1 min-h-0">
                   <h3 className="text-lg font-bold text-gray-800">{pkg.name}</h3>
                   <div className="mt-4">
                     <span className="text-xs text-gray-400 uppercase tracking-wider">Starting at</span>
                     <div className="text-2xl font-bold text-[#A98B75] mt-1">₱{Number(pkg.price).toLocaleString()}</div>
                   </div>
-                  <ul className="mt-6 space-y-3">
+                  <ul className="mt-6 space-y-3 flex-1">
                     {(Array.isArray(pkg.features) ? pkg.features : []).map((feature, i) => (
                       <li key={i} className="flex items-center gap-2.5 text-gray-600 text-sm">
                         <span className="w-5 h-5 rounded-full bg-[#A98B75]/10 flex items-center justify-center flex-shrink-0">
@@ -106,29 +108,31 @@ function Packages() {
                       </li>
                     ))}
                   </ul>
-                  {pkg.allows_walk_in && (
-                    <p className="mt-3 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-1.5 inline-block">
-                      Walk-ins available
-                    </p>
-                  )}
-                  <Link
-                    to={bookLink(pkg)}
-                    className={`mt-6 w-full py-3 rounded-full font-medium transition-all duration-300 flex items-center justify-center ${
-                      pkg.is_popular
-                        ? "bg-[#A98B75] text-white hover:bg-[#8a7260] hover:shadow-lg hover:shadow-[#A98B75]/25"
-                        : "bg-[#A98B75]/10 text-[#A98B75] hover:bg-[#A98B75] hover:text-white"
-                    }`}
-                  >
-                    Book Now
-                  </Link>
-                  {pkg.allows_walk_in && (
+                  <div className="mt-6 pt-1">
+                    {pkg.allows_walk_in && (
+                      <p className="mb-3 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-3 py-1.5 inline-block">
+                        Walk-ins available
+                      </p>
+                    )}
                     <Link
-                      to={walkInLink(pkg)}
-                      className="mt-2 w-full py-2.5 rounded-full font-medium text-sm transition-all duration-300 flex items-center justify-center border border-sky-200 text-sky-800 bg-sky-50 hover:bg-sky-100"
+                      to={bookLink(pkg)}
+                      className={`w-full py-3 rounded-full font-medium transition-all duration-300 flex items-center justify-center ${
+                        pkg.is_popular
+                          ? "bg-[#A98B75] text-white hover:bg-[#8a7260] hover:shadow-lg hover:shadow-[#A98B75]/25"
+                          : "bg-[#A98B75]/10 text-[#A98B75] hover:bg-[#A98B75] hover:text-white"
+                      }`}
                     >
-                      Walk in today
+                      Book Now
                     </Link>
-                  )}
+                    {pkg.allows_walk_in && (
+                      <Link
+                        to={walkInLink(pkg)}
+                        className="mt-2 w-full py-2.5 rounded-full font-medium text-sm transition-all duration-300 flex items-center justify-center border border-sky-200 text-sky-800 bg-sky-50 hover:bg-sky-100"
+                      >
+                        Walk in today
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
