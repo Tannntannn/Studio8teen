@@ -382,7 +382,17 @@ function buildFromPerImage(
 function parseJsonContent(raw: string) {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return JSON.parse(fenced ? fenced[1].trim() : trimmed) as Record<string, unknown>;
+  const body = fenced ? fenced[1].trim() : trimmed;
+  try {
+    return JSON.parse(body) as Record<string, unknown>;
+  } catch {
+    const start = body.indexOf("{");
+    const end = body.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(body.slice(start, end + 1)) as Record<string, unknown>;
+    }
+    throw new Error("unparseable_model_json");
+  }
 }
 
 async function fetchImagePart(url: string) {
@@ -410,6 +420,18 @@ async function fetchImagePart(url: string) {
   return { inline_data: { mime_type: mimeType.split(";")[0], data: btoa(binary) } };
 }
 
+function looksTechnical(text: string) {
+  return /[{}"]|gemini_|models\/|not found|api key|openrouter|openai|error code|status/i.test(text);
+}
+
+function friendlyVisionDetail(code: string, detail: string) {
+  if (code === "quota_exceeded" || code === "rate_limited") {
+    return "AI is busy right now. Your photo suggestions are already filled in. Try Re-analyze in a minute.";
+  }
+  if (detail && !looksTechnical(detail)) return detail;
+  return "Photo suggestions are ready. AI enhancement is unavailable right now, so you can keep editing or try Re-analyze later.";
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -417,16 +439,31 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function parseRetryMs(body: string): number {
-  const plain = body.match(/retry in (\d+(?:\.\d+)?)s/i);
-  if (plain) return Math.min(60000, Math.ceil(parseFloat(plain[1]) * 1000) + 1000);
-  const jsonDelay = body.match(/"retryDelay":\s*"(\d+)s"/);
-  if (jsonDelay) return Math.min(60000, parseInt(jsonDelay[1], 10) * 1000 + 1000);
-  return 12000;
+function geminiRequestBody(
+  urls: string[],
+  imageParts: Awaited<ReturnType<typeof fetchImagePart>>[],
+  categoryOptions: CategoryOptions,
+  jsonMode: boolean
+) {
+  const generationConfig: Record<string, unknown> = {
+    temperature: 0,
+    maxOutputTokens: 1800,
+  };
+  if (jsonMode) generationConfig.responseMimeType = "application/json";
+  return {
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{
+      role: "user",
+      parts: [
+        { text: buildInstruction(urls.length, categoryOptions) },
+        ...imageParts.map((part, i) => [
+          { text: `--- Image ${i + 1} of ${urls.length} ---` },
+          part,
+        ]).flat(),
+      ],
+    }],
+    generationConfig,
+  };
 }
 
 async function callGeminiModel(
@@ -436,60 +473,67 @@ async function callGeminiModel(
   imageParts: Awaited<ReturnType<typeof fetchImagePart>>[],
   categoryOptions: CategoryOptions
 ) {
-  const maxAttempts = 2;
-
-  for (let attempt = 0; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(
+  const post = (jsonMode: boolean) =>
+    fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [{
-            role: "user",
-            parts: [
-              { text: buildInstruction(urls.length, categoryOptions) },
-              ...imageParts.map((part, i) => [
-                { text: `--- Image ${i + 1} of ${urls.length} ---` },
-                part,
-              ]).flat(),
-            ],
-          }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0,
-            maxOutputTokens: 1800,
-          },
-        }),
+        body: JSON.stringify(geminiRequestBody(urls, imageParts, categoryOptions, jsonMode)),
+        signal: AbortSignal.timeout(18000),
       }
     );
 
-    const bodyText = await res.text();
-    if (res.ok) {
-      const data = JSON.parse(bodyText);
-      const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!raw) return { ok: false as const, isQuota: false, status: 502, body: "empty_gemini_response", model };
-      return { ok: true as const, raw, model };
-    }
-
-    const isQuota = res.status === 429 || bodyText.includes("RESOURCE_EXHAUSTED") || bodyText.includes("quota");
-    if (isQuota && attempt < maxAttempts) {
-      await sleep(parseRetryMs(bodyText));
-      continue;
-    }
-
-    return { ok: false as const, isQuota, status: res.status, body: bodyText, model };
+  let res = await post(true);
+  let bodyText = await res.text();
+  if (!res.ok && res.status === 400) {
+    res = await post(false);
+    bodyText = await res.text();
   }
 
-  return { ok: false as const, isQuota: true, status: 429, body: "quota_exceeded", model };
+  if (res.ok) {
+    const data = JSON.parse(bodyText);
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const raw = Array.isArray(parts)
+      ? parts.map((part: { text?: string }) => part?.text || "").join("\n")
+      : "";
+    if (!raw.trim()) return { ok: false as const, isQuota: false, status: 502, body: "empty_gemini_response", model };
+    return { ok: true as const, raw, model };
+  }
+
+  const missingModel = res.status === 404 || bodyText.includes("is not found") || bodyText.includes("NOT_FOUND");
+  if (missingModel) {
+    return { ok: false as const, isQuota: false, status: res.status, body: "model_not_found", model };
+  }
+
+  const isQuota = res.status === 429 || bodyText.includes("RESOURCE_EXHAUSTED") || bodyText.includes("quota");
+  return { ok: false as const, isQuota, status: res.status, body: bodyText.slice(0, 300), model };
 }
 
+const RETIRED_GEMINI_MODELS = new Set([
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-latest",
+  "gemini-1.5-flash-001",
+  "gemini-1.5-flash-002",
+  "gemini-1.5-pro",
+  "gemini-1.5-pro-latest",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-001",
+  "gemini-2.0-flash-exp",
+]);
+
 function geminiModels(): string[] {
-  const preferred = Deno.env.get("GEMINI_MODEL");
-  // Prefer current Flash IDs; keep older names as last resorts
-  const fallbacks = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash"];
-  const list = preferred ? [preferred, ...fallbacks] : fallbacks;
+  const preferred = Deno.env.get("GEMINI_MODEL") || "";
+  const fallbacks = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+  ];
+  const list = preferred && !RETIRED_GEMINI_MODELS.has(preferred)
+    ? [preferred, ...fallbacks]
+    : fallbacks;
   return [...new Set(list)];
 }
 
@@ -504,27 +548,34 @@ async function analyzeWithGemini(urls: string[], categoryOptions: CategoryOption
   for (const model of geminiModels()) {
     const attempt = await callGeminiModel(apiKey, model, urls, imageParts, categoryOptions);
     if (attempt.ok) {
-      const parsed = parseJsonContent(attempt.raw);
-      const perImage: Record<string, unknown>[] = Array.isArray(parsed.per_image)
-        ? (parsed.per_image as Record<string, unknown>[])
-        : [{ visual_cues: parsed.visual_cues, ...parsed } as Record<string, unknown>];
-      const merged = (parsed.merged as Record<string, unknown>) || parsed;
-      const reasoning = asText(parsed.occasion_reasoning);
-      const result = buildFromPerImage(perImage, merged, reasoning, categoryOptions);
+      try {
+        const parsed = parseJsonContent(attempt.raw);
+        const perImage: Record<string, unknown>[] = Array.isArray(parsed.per_image)
+          ? (parsed.per_image as Record<string, unknown>[])
+          : [{ visual_cues: parsed.visual_cues, ...parsed } as Record<string, unknown>];
+        const merged = (parsed.merged as Record<string, unknown>) || parsed;
+        const reasoning = asText(parsed.occasion_reasoning);
+        const result = buildFromPerImage(perImage, merged, reasoning, categoryOptions);
 
-      return {
-        suggestions: result.suggestions,
-        visual_cues: result.visual_cues,
-        occasion_reasoning: result.occasion_reasoning,
-        confidence: result.confidence,
-        per_image: perImage.map((img) => ({
-          event_type: pickFromList(asText(img.event_type), EVENT_TYPES),
-          event_confidence: asText(img.event_confidence),
-          visual_cues: asArray(img.visual_cues).slice(0, 6),
-        })),
-        source: "gemini",
-        model: attempt.model,
-      };
+        return {
+          suggestions: result.suggestions,
+          visual_cues: result.visual_cues,
+          occasion_reasoning: result.occasion_reasoning,
+          confidence: result.confidence,
+          per_image: perImage.map((img) => ({
+            event_type: pickFromList(asText(img.event_type), EVENT_TYPES),
+            event_confidence: asText(img.event_confidence),
+            visual_cues: asArray(img.visual_cues).slice(0, 6),
+          })),
+          source: "gemini",
+          model: attempt.model,
+        };
+      } catch (e) {
+        lastError = (e as Error).message;
+        allQuota = false;
+        console.warn(`Gemini model ${model} returned unreadable JSON`);
+        continue;
+      }
     }
 
     lastError = attempt.body;
@@ -535,7 +586,8 @@ async function analyzeWithGemini(urls: string[], categoryOptions: CategoryOption
   if (allQuota) {
     throw new Error("quota_exceeded");
   }
-  throw new Error(`gemini_request_failed: ${lastError}`);
+  console.error("Gemini models unavailable:", lastError.slice(0, 300));
+  throw new Error("gemini_unavailable");
 }
 
 async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOptions) {
@@ -547,10 +599,10 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
   // Specific :free VL models as fallbacks when the router is busy.
   const models = [
     ...(envModel ? [envModel] : []),
-    "openrouter/free",
     "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "google/gemma-4-31b-it:free",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
+    "openrouter/free",
   ];
   let lastError = "";
   let sawRateLimit = false;
@@ -587,7 +639,7 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
           "X-Title": "StudioBook Mood Board",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(28000),
+        signal: AbortSignal.timeout(14000),
       });
 
       let bodyText = await res.text();
@@ -609,13 +661,14 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
             "X-Title": "StudioBook Mood Board",
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(28000),
+          signal: AbortSignal.timeout(14000),
         });
         bodyText = await res.text();
       }
 
-      if (!res.ok) {
-        lastError = `HTTP ${res.status}: ${bodyText.slice(0, 300)}`;
+    if (!res.ok) {
+        lastError = `HTTP ${res.status}: ${bodyText.slice(0, 180)}`;
+        if (res.status === 401 || res.status === 403) break;
         if (res.status === 429 || bodyText.includes("rate-limited") || bodyText.includes("Rate limit")) {
           sawRateLimit = true;
         }
@@ -706,6 +759,30 @@ async function analyzeWithOpenAI(urls: string[], categoryOptions: CategoryOption
   };
 }
 
+function firstUseful<T>(tasks: Promise<T | null>[]): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (!tasks.length) {
+      reject(new Error("unavailable"));
+      return;
+    }
+    let pending = tasks.length;
+    let lastError: Error & { rateLimited?: boolean } = new Error("unavailable");
+    const finish = () => {
+      pending -= 1;
+      if (pending === 0) reject(lastError);
+    };
+    for (const task of tasks) {
+      task.then((result) => {
+        if (result) resolve(result);
+        else finish();
+      }).catch((err) => {
+        lastError = err as Error & { rateLimited?: boolean };
+        finish();
+      });
+    }
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -738,57 +815,24 @@ Deno.serve(async (req) => {
       });
     }
 
-    let lastDetail = "";
-    let lastErrorCode = "failed";
+    const tasks = [];
+    if (hasOpenRouter) tasks.push(analyzeWithOpenRouter(urls, categoryOptions));
+    if (hasGemini) tasks.push(analyzeWithGemini(urls, categoryOptions));
+    if (hasOpenAI) tasks.push(analyzeWithOpenAI(urls, categoryOptions));
 
-    // Try OpenRouter first, then Gemini, then OpenAI — do not stop after one provider fails
-    if (hasOpenRouter) {
-      try {
-        const result = await analyzeWithOpenRouter(urls, categoryOptions);
-        if (result) return jsonResponse({ ok: true, ...result });
-      } catch (e) {
-        const err = e as Error & { rateLimited?: boolean };
-        lastDetail = err.message.slice(0, 400);
-        lastErrorCode = err.rateLimited ? "rate_limited" : "failed";
-        console.error("OpenRouter failed, trying next provider:", lastDetail);
-      }
+    try {
+      const result = await firstUseful(tasks);
+      return jsonResponse({ ok: true, ...result });
+    } catch (e) {
+      const err = e as Error & { rateLimited?: boolean };
+      const busy = err.message === "quota_exceeded" || Boolean(err.rateLimited);
+      console.error("Vision providers failed:", err.message?.slice(0, 300));
+      return jsonResponse({
+        ok: false,
+        error: busy ? "quota_exceeded" : "failed",
+        detail: friendlyVisionDetail(busy ? "quota_exceeded" : "failed", ""),
+      });
     }
-
-    if (hasGemini) {
-      try {
-        const result = await analyzeWithGemini(urls, categoryOptions);
-        if (result) return jsonResponse({ ok: true, ...result });
-      } catch (e) {
-        const msg = (e as Error).message;
-        if (msg === "quota_exceeded") {
-          lastErrorCode = "quota_exceeded";
-          lastDetail = "Gemini rate limit reached. Wait a moment and try Re-analyze again.";
-        } else {
-          lastDetail = msg.slice(0, 400);
-          lastErrorCode = "failed";
-        }
-        console.error("Gemini failed:", msg);
-        if (!hasOpenAI) {
-          return jsonResponse({ ok: false, error: lastErrorCode, detail: lastDetail });
-        }
-      }
-    }
-
-    if (hasOpenAI) {
-      try {
-        const openaiResult = await analyzeWithOpenAI(urls, categoryOptions);
-        if (openaiResult) return jsonResponse({ ok: true, ...openaiResult });
-      } catch (e) {
-        lastDetail = (e as Error).message.slice(0, 400);
-        lastErrorCode = "failed";
-      }
-    }
-
-    return jsonResponse({
-      ok: false,
-      error: lastErrorCode,
-      detail: lastDetail || "All vision providers failed. Try Re-analyze in a minute.",
-    });
   } catch (e) {
     const msg = (e as Error).message;
     if (msg === "quota_exceeded") {
@@ -798,6 +842,10 @@ Deno.serve(async (req) => {
         detail: "Gemini rate limit reached. Wait a moment and try Re-analyze again.",
       });
     }
-    return jsonResponse({ ok: false, error: "failed", detail: msg });
+    return jsonResponse({
+      ok: false,
+      error: "failed",
+      detail: "Photo suggestions are ready. AI enhancement is unavailable right now, so you can keep editing or try Re-analyze later.",
+    });
   }
 });

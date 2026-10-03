@@ -231,6 +231,25 @@ function deriveSuggestions(m, categoryOptions) {
   else if (contrast > 0.55) editing = "High-contrast edit, punchy colors, crisp detail.";
   else editing = "True-to-life colors with natural skin tones.";
 
+  const moodText = mood.slice(0, 2).join(" and ").toLowerCase();
+  const description = [
+    theme ? `A ${theme.toLowerCase()} theme` : "A studio theme",
+    moodText ? `with a ${moodText} feel` : "",
+    lighting ? lighting.replace(/\.$/, "").toLowerCase() : "",
+  ].filter(Boolean).join(", ") + ".";
+
+  const outfit_suggestions = warmth > 0.08
+    ? ["Warm formal attire", "Soft textured fabrics", "Simple gold or neutral accessories"]
+    : brightness < 0.4
+      ? ["Dark tailored suiting", "Clean formal lines", "Minimal jewelry"]
+      : ["Light formal wear", "Soft neutral colors", "Understated accessories"];
+
+  const prop_suggestions = greenness > 0.05
+    ? ["Fresh greenery", "A simple floral accent", "Natural wood or stone surface"]
+    : brightness < 0.4
+      ? ["Dark studio backdrop", "A simple stool or chair", "One small highlight prop"]
+      : ["Plain studio backdrop", "A clean posing stool", "Minimal props so the subject stays the focus"];
+
   // Event type cannot be guessed from colors alone — leave empty for admin to set or use AI vision.
   const eventType = "";
 
@@ -253,6 +272,9 @@ function deriveSuggestions(m, categoryOptions) {
     photography_style: style,
     lighting_style: lighting,
     editing_style: editing,
+    description,
+    outfit_suggestions,
+    prop_suggestions,
     event_type: eventType,
     color_palette: m.palette,
     tags: [...tagSet],

@@ -32,44 +32,58 @@ export function AuthProvider({ children }) {
     Boolean(authUser?.email_confirmed_at || authUser?.confirmed_at);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    let cancelled = false;
+    let settleId = 0;
+
+    const settle = async (session, event) => {
+      const id = ++settleId;
+      const stillCurrent = () => !cancelled && id === settleId;
+      setLoading(true);
+
       if (session?.user && !isEmailConfirmed(session.user)) {
         await supabase.auth.signOut();
+        if (!stillCurrent()) return;
         setUser(null);
         setProfile(null);
         setLoading(false);
         return;
       }
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        void initOneSignal(session.user.id);
+
+      const nextUser = session?.user ?? null;
+      setUser(nextUser);
+      if (nextUser) {
+        await fetchProfile(nextUser.id);
+        if (stillCurrent() && (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED")) {
+          void initOneSignal(nextUser.id);
+        }
+      } else if (stillCurrent()) {
+        setProfile(null);
+        if (event === "SIGNED_OUT") void logoutOneSignal();
       }
-      setLoading(false);
+      if (stillCurrent()) setLoading(false);
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      void settle(session, "INITIAL_SESSION");
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user && !isEmailConfirmed(session.user)) {
-        await supabase.auth.signOut();
-        setUser(null);
-        setProfile(null);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return;
+      if (event === "TOKEN_REFRESHED") {
+        setUser(session?.user ?? null);
         return;
       }
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-        if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
-          void initOneSignal(session.user.id);
-        }
-      } else {
-        setProfile(null);
-        if (event === "SIGNED_OUT") void logoutOneSignal();
-      }
+      setTimeout(() => {
+        void settle(session, event);
+      }, 0);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email, password, fullName) => {
@@ -130,15 +144,15 @@ export function AuthProvider({ children }) {
 
   const isGuestEmail = (email) => /@guest\.studio8teen\.local$/i.test(String(email || ""));
 
-  // Guest if profile flag, auth metadata, or synthetic walk-in email — unless claimed/archived
+  // Guest only after the profile row is loaded, so a refresh does not treat the user as a guest first.
   const isGuest = Boolean(
-    user &&
-      !profile?.claimed_at &&
-      !profile?.guest_archived_at &&
-      (profile?.is_guest ||
+    profile &&
+      !profile.claimed_at &&
+      !profile.guest_archived_at &&
+      (profile.is_guest ||
         user?.user_metadata?.is_guest ||
         isGuestEmail(user?.email) ||
-        isGuestEmail(profile?.email))
+        isGuestEmail(profile.email))
   );
 
   return (

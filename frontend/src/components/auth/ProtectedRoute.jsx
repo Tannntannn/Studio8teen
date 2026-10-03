@@ -30,7 +30,15 @@ export default function ProtectedRoute({ children, role }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (role === "admin" && profile?.role !== "admin") {
+  if (role === "admin" && !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F8F6F3]">
+        <div className="text-[#5B4636] font-medium">Loading...</div>
+      </div>
+    );
+  }
+
+  if (role === "admin" && profile.role !== "admin") {
     return <Navigate to="/client-bookings" replace />;
   }
 

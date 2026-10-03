@@ -244,53 +244,39 @@ export default function AdminMoodBoardThemes() {
     });
   };
 
-  const runVisionAnalysis = async (urls, { overwrite = false, localPalette = null } = {}) => {
+  const runVisionAnalysis = async (urls, { localPalette = null } = {}) => {
     const analyzeUrls = (urls || []).filter(Boolean).slice(-5);
     if (!analyzeUrls.length) return;
+    setSuggestionNote("");
 
-    if (localPalette) {
-      applySuggestions(localColorSuggestionsOnly(localPalette, categoryLabels) || localPalette, { overwrite });
-      setSuggestionNote("Quick suggestions applied — enhancing with AI...");
-    } else {
-      setSuggestionNote("Enhancing with AI...");
+    if (localPalette?.color_palette?.length) {
+      applySuggestions({ color_palette: localPalette.color_palette }, { overwrite: true });
     }
 
     const result = await analyzeImagesWithVision(analyzeUrls, {
-      onStatus: (msg) => setSuggestionNote(msg),
       categoryOptions: categoryLabels,
     });
 
     if (result?.suggestions) {
-      const s = {
-        ...result.suggestions,
-        color_palette: result.suggestions.color_palette?.length
-          ? result.suggestions.color_palette
-          : localPalette?.color_palette || [],
-      };
-      applySuggestions(s, { overwrite });
-      setSuggestionNote("AI analysis completed.");
+      applySuggestions(
+        {
+          ...result.suggestions,
+          color_palette: localPalette?.color_palette?.length
+            ? localPalette.color_palette
+            : result.suggestions.color_palette || [],
+        },
+        { overwrite: true }
+      );
+      setSuggestionNote("");
       return;
     }
 
     if (localPalette) {
-      setSuggestionNote(
-        result?.meta?.error === "rate_limited"
-          ? "AI is busy — quick local suggestions are applied. Try Re-analyze in a minute."
-          : `AI unavailable — quick local suggestions are applied.${
-              result?.meta?.detail ? ` (${String(result.meta.detail).slice(0, 120)})` : ""
-            }`
-      );
-      return;
+      applySuggestions(localColorSuggestionsOnly(localPalette, categoryLabels) || localPalette, {
+        overwrite: false,
+      });
     }
-
-    const colorsOnly = localColorSuggestionsOnly(localPalette, categoryLabels);
-    if (colorsOnly) applySuggestions(colorsOnly, { overwrite });
-    const detail = result?.meta?.detail;
-    if (result?.meta?.error === "rate_limited") {
-      setSuggestionNote(detail || "AI is busy. Wait 1–2 min and click Re-analyze.");
-    } else {
-      setSuggestionNote(detail ? `Analysis failed. ${detail}` : "Analysis failed — try Re-analyze.");
-    }
+    setSuggestionNote("");
   };
 
   const handleImageUpload = async (e) => {
@@ -298,13 +284,9 @@ export default function AdminMoodBoardThemes() {
     if (!files.length) return;
 
     setUploading(true);
-    setSuggestionNote("Reading colors from your images...");
+    setSuggestionNote("");
     try {
       const local = await analyzeImageFiles(files, categoryLabels);
-      if (local) {
-        applySuggestions(localColorSuggestionsOnly(local, categoryLabels) || local, { overwrite: false });
-        setSuggestionNote("Quick suggestions ready — uploading images...");
-      }
 
       const uploaded = await Promise.all(
         files.map(async (file) => {
@@ -327,19 +309,17 @@ export default function AdminMoodBoardThemes() {
     }
   };
 
-  const handleReAnalyze = async (overwrite = false) => {
+  const handleReAnalyze = async () => {
     const urls = currentImages.map((img) => img.url).filter(Boolean);
     if (!urls.length) {
       Swal.fire({ icon: "info", title: "No images", text: "Upload inspiration images first." });
       return;
     }
     setAnalyzing(true);
+    setSuggestionNote("");
     try {
       const local = await analyzeImageUrls(urls, categoryLabels);
-      if (local) {
-        applySuggestions(localColorSuggestionsOnly(local, categoryLabels) || local, { overwrite });
-      }
-      await runVisionAnalysis(urls, { overwrite, localPalette: local });
+      await runVisionAnalysis(urls, { localPalette: local });
     } catch (err) {
       Swal.fire({ icon: "error", title: "Analysis failed", text: err.message });
     } finally {
@@ -599,7 +579,7 @@ export default function AdminMoodBoardThemes() {
                         <>
                           <button
                             type="button"
-                            onClick={() => handleReAnalyze(false)}
+                            onClick={() => handleReAnalyze()}
                             disabled={analyzing || uploading}
                             className="px-3 py-2 rounded-xl border border-[#A98B75] text-[#A98B75] text-sm hover:bg-[#A98B75]/10 disabled:opacity-50"
                           >
@@ -607,7 +587,7 @@ export default function AdminMoodBoardThemes() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleReAnalyze(true)}
+                            onClick={() => handleReAnalyze()}
                             disabled={analyzing || uploading}
                             className="px-3 py-2 rounded-xl border border-[#E8E1DA] text-gray-600 text-sm hover:bg-white disabled:opacity-50"
                             title="Overwrite all fields with fresh AI suggestions"

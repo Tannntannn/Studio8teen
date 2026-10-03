@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 import { getVisionAnalysisUrl } from "../lib/cloudinary";
 import { clampSuggestionsToCategories, asCategoryValues } from "./moodBoardCategories";
 
-const ANALYSIS_DEADLINE_MS = 55_000;
+const ANALYSIS_DEADLINE_MS = 75_000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const visionCache = new Map();
@@ -172,6 +172,9 @@ export function localColorSuggestionsOnly(local, categoryOptions) {
     photography_style: local.photography_style,
     lighting_style: local.lighting_style,
     editing_style: local.editing_style,
+    description: local.description,
+    outfit_suggestions: local.outfit_suggestions,
+    prop_suggestions: local.prop_suggestions,
     color_palette: local.color_palette || [],
     tags: (local.tags || []).filter((t) =>
       ["bright", "dark", "balanced", "warm tones", "cool tones", "neutral tones", "muted", "vibrant", "greenery"].some(
