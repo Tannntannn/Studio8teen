@@ -18,6 +18,12 @@ export function AuthProvider({ children }) {
 
   const fetchProfile = async (userId) => {
     const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    if (data?.deactivated_at) {
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      return null;
+    }
     setProfile(data);
     return data;
   };
@@ -82,13 +88,21 @@ export function AuthProvider({ children }) {
 
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) {
+      if (/banned/i.test(error.message || "")) {
+        throw new Error("This account has been deactivated. Contact the studio if you think this is a mistake.");
+      }
+      throw error;
+    }
     if (data.user && !isEmailConfirmed(data.user)) {
       await supabase.auth.signOut();
       throw new Error("Please confirm your email before logging in.");
     }
     if (data.user) {
-      await fetchProfile(data.user.id);
+      const prof = await fetchProfile(data.user.id);
+      if (!prof) {
+        throw new Error("This account has been deactivated. Contact the studio if you think this is a mistake.");
+      }
       void initOneSignal(data.user.id);
     }
     return data;
@@ -114,7 +128,18 @@ export function AuthProvider({ children }) {
     return fetchProfile(current.id);
   };
 
-  const isGuest = Boolean(profile?.is_guest && !profile?.claimed_at);
+  const isGuestEmail = (email) => /@guest\.studio8teen\.local$/i.test(String(email || ""));
+
+  // Guest if profile flag, auth metadata, or synthetic walk-in email — unless claimed/archived
+  const isGuest = Boolean(
+    user &&
+      !profile?.claimed_at &&
+      !profile?.guest_archived_at &&
+      (profile?.is_guest ||
+        user?.user_metadata?.is_guest ||
+        isGuestEmail(user?.email) ||
+        isGuestEmail(profile?.email))
+  );
 
   return (
     <AuthContext.Provider

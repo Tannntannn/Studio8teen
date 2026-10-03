@@ -22,9 +22,9 @@ export default function Bookings() {
     getMyBookings().then(setBookings).catch(console.error);
   }, []);
 
-  const upcoming = bookings.filter((b) => ["confirmed", "awaiting_payment", "payment_submitted"].includes(b.status)).length;
+  const upcoming = bookings.filter((b) => ["confirmed", "awaiting_payment", "payment_submitted", "pending"].includes(b.status)).length;
   const completed = bookings.filter((b) => b.status === "completed").length;
-  const pending = bookings.filter((b) => ["awaiting_payment", "payment_submitted"].includes(b.status)).length;
+  const pending = bookings.filter((b) => ["awaiting_payment", "payment_submitted", "pending"].includes(b.status)).length;
 
   return (
     <ClientLayout>

@@ -20,8 +20,8 @@ import { useAuth } from "../../context/AuthContext";
 import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { localDateISO } from "../../lib/dateUtils";
+import { RESERVATION_FEE } from "../../lib/constants";
 import Swal from "sweetalert2";
-import { generateAndSaveBookingCollage } from "../../services/moodBoardSession";
 import { updateProfile } from "../../services/profiles";
 
 function formatLongDate(iso) {
@@ -67,7 +67,15 @@ export default function CreateBooking() {
   const selectedPackageId = watch("package_id");
   const bookingMode = watch("booking_mode");
 
-  const selectedPackage = packages.find((p) => p.id === selectedPackageId);
+  const selectablePackages = useMemo(() => {
+    if (isGuest || modeFromUrl === "walk_in") {
+      return packages.filter((p) => p.allows_walk_in);
+    }
+    return packages;
+  }, [packages, isGuest, modeFromUrl]);
+
+  const selectedPackage = selectablePackages.find((p) => p.id === selectedPackageId)
+    || packages.find((p) => p.id === selectedPackageId);
   const allowsWalkIn = Boolean(selectedPackage?.allows_walk_in);
   const todayIso = useMemo(() => localDateISO(), []);
 
@@ -89,32 +97,59 @@ export default function CreateBooking() {
     getPackages()
       .then((data) => {
         setPackages(data);
-        if (packageFromUrl && data.some((p) => p.id === packageFromUrl)) {
-          setValue("package_id", packageFromUrl, { shouldValidate: true });
+        const walkInOnly = isGuest || modeFromUrl === "walk_in";
+        const list = walkInOnly ? data.filter((p) => p.allows_walk_in) : data;
+
+        if (packageFromUrl) {
+          const fromUrl = data.find((p) => p.id === packageFromUrl);
+          if (fromUrl && (!walkInOnly || fromUrl.allows_walk_in)) {
+            setValue("package_id", packageFromUrl, { shouldValidate: true });
+          } else if (fromUrl && walkInOnly && !fromUrl.allows_walk_in) {
+            setValue("package_id", "", { shouldValidate: true });
+            Swal.fire({
+              icon: "info",
+              title: "Package not available for walk-in",
+              text: "That package does not accept walk-ins. Choose a walk-in package, or ask the studio to enable walk-in on it.",
+              timer: 4000,
+              showConfirmButton: true,
+            });
+          }
+        }
+
+        if (walkInOnly && list.length === 0) {
+          // empty state handled in UI
         }
       })
       .catch(console.error);
     getTimeSlots().then(setTimeSlotTimes).catch(() => {});
-  }, [packageFromUrl, setValue]);
+  }, [packageFromUrl, setValue, isGuest, modeFromUrl]);
 
+  // Guests / walk-in URL stay on walk-in mode. Registered users need package allows_walk_in.
   useEffect(() => {
-    if ((isGuest || modeFromUrl === "walk_in") && allowsWalkIn) {
+    if (isGuest || modeFromUrl === "walk_in") {
       setValue("booking_mode", "walk_in", { shouldValidate: true });
+      return;
     }
-  }, [isGuest, modeFromUrl, allowsWalkIn, setValue]);
-
-  useEffect(() => {
-    if (bookingMode === "walk_in") {
-      setBookingMonth(todayIso.slice(0, 7));
-      setValue("event_date", todayIso, { shouldValidate: true });
-    }
-  }, [bookingMode, todayIso, setValue]);
-
-  useEffect(() => {
     if (!allowsWalkIn && bookingMode === "walk_in") {
       setValue("booking_mode", "scheduled");
     }
-  }, [allowsWalkIn, bookingMode, setValue]);
+  }, [isGuest, modeFromUrl, allowsWalkIn, bookingMode, setValue]);
+
+  // Clear selection if package is no longer in the walk-in-filtered list
+  useEffect(() => {
+    if (!(isGuest || modeFromUrl === "walk_in")) return;
+    if (!selectedPackageId) return;
+    if (!selectablePackages.some((p) => p.id === selectedPackageId)) {
+      setValue("package_id", "", { shouldValidate: true });
+    }
+  }, [isGuest, modeFromUrl, selectablePackages, selectedPackageId, setValue]);
+
+  useEffect(() => {
+    if (bookingMode === "walk_in" || isGuest) {
+      setBookingMonth(todayIso.slice(0, 7));
+      setValue("event_date", todayIso, { shouldValidate: true });
+    }
+  }, [bookingMode, isGuest, todayIso, setValue]);
 
   useEffect(() => {
     const loadMonth = async () => {
@@ -140,12 +175,16 @@ export default function CreateBooking() {
     setValue("time_slot", "");
   }, [selectedDate, setValue]);
 
+  const sameDayOnly = isGuest || bookingMode === "walk_in";
+
   const handleSelectDate = (date) => {
-    if (bookingMode === "walk_in" && date !== todayIso) {
+    if (sameDayOnly && date !== todayIso) {
       Swal.fire({
         icon: "info",
         title: "Walk-in is same-day only",
-        text: "Please choose today’s date, or switch to a scheduled booking.",
+        text: isGuest
+          ? "Guest sessions are same-day only. Create a password later to book future dates."
+          : "Please choose today’s date, or switch to a scheduled booking.",
       });
       return;
     }
@@ -165,8 +204,18 @@ export default function CreateBooking() {
       Swal.fire({ icon: "warning", title: "Select date and time", text: "Pick an open date and available time slot." });
       return;
     }
-    if (data.booking_mode === "walk_in" && data.event_date !== todayIso) {
+    const isWalkIn = Boolean(isGuest || data.booking_mode === "walk_in");
+    if (isWalkIn && data.event_date !== todayIso) {
       Swal.fire({ icon: "warning", title: "Walk-in must be today", text: "Same-day slots only for walk-in bookings." });
+      return;
+    }
+    const pkg = packages.find((p) => p.id === data.package_id);
+    if (isWalkIn && !pkg?.allows_walk_in) {
+      Swal.fire({
+        icon: "warning",
+        title: "Package does not allow walk-in",
+        text: "Choose a package with walk-in enabled, or ask the studio to turn it on.",
+      });
       return;
     }
 
@@ -182,12 +231,18 @@ export default function CreateBooking() {
         return { name, price: a?.price || 0 };
       });
 
-      // Walk-in / guest: save contact info on profile before booking (admin uses this to confirm)
-      if (isGuest || data.booking_mode === "walk_in") {
+      // Guest walk-in: save contact on profile. Registered walk-in: phone/address only (don't overwrite login email).
+      if (isGuest) {
         await updateProfile(user.id, {
           phone: data.contact_number,
           address: data.client_address,
           email: data.contact_email || undefined,
+          full_name: profile?.full_name,
+        });
+      } else if (isWalkIn) {
+        await updateProfile(user.id, {
+          phone: data.contact_number,
+          address: data.client_address,
           full_name: profile?.full_name,
         });
       }
@@ -203,25 +258,26 @@ export default function CreateBooking() {
         client_address: data.client_address,
         selected_addons: addonRows,
         addons_total: addonsTotal,
-        is_walk_in: data.booking_mode === "walk_in",
+        is_walk_in: isWalkIn,
+        ...(isWalkIn
+          ? {
+              guest_snapshot: {
+                full_name: profile?.full_name || "",
+                email: data.contact_email || profile?.email || "",
+                phone: data.contact_number || "",
+                address: data.client_address || "",
+                created_at: new Date().toISOString(),
+              },
+            }
+          : {}),
       });
-
-      try {
-        await generateAndSaveBookingCollage(booking.id, user.id, {
-          packageName: selectedPackage?.name,
-          notes: data.notes,
-        });
-      } catch (collageErr) {
-        console.warn("Collage generation skipped:", collageErr?.message || collageErr);
-      }
 
       Swal.fire({
         icon: "success",
-        title: data.booking_mode === "walk_in" ? "Walk-in request submitted" : "Booking submitted",
-        text:
-          data.booking_mode === "walk_in"
-            ? "The studio will confirm your walk-in after reviewing your details and payment."
-            : "Upload payment proof next so the studio can confirm your booking.",
+        title: isWalkIn ? "Walk-in request submitted" : "Booking submitted",
+        text: isWalkIn
+          ? "The studio will confirm your walk-in after reviewing your details and payment."
+          : "Upload payment proof next so the studio can confirm your booking.",
         timer: 2800,
         showConfirmButton: false,
       });
@@ -241,29 +297,44 @@ export default function CreateBooking() {
     <ClientLayout>
       <div className="max-w-6xl mx-auto w-full">
         <div className="mb-8 text-center">
-          <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Book a Session</h1>
-          <p className="mt-2 text-gray-500">Choose a package, pick an available date & time, then confirm your details.</p>
+          <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">
+            {isGuest || modeFromUrl === "walk_in" ? "Book a Walk-in" : "Book a Session"}
+          </h1>
+          <p className="mt-2 text-gray-500">
+            {isGuest || modeFromUrl === "walk_in"
+              ? "Only packages with walk-in enabled are listed. Same-day slots only — create a password later to return."
+              : "Choose a package, pick an available date & time, then confirm your details."}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 space-y-5 shadow-sm">
             <h2 className="font-semibold text-[#5B4636] text-lg">1. Package</h2>
-            <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Select package</label>
-              <select
-                {...register("package_id", { required: "Select a package" })}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:border-[#A98B75] outline-none"
-              >
-                <option value="">Select Package</option>
-                {packages.map((pkg) => (
-                  <option key={pkg.id} value={pkg.id}>
-                    {pkg.name} — ₱{Number(pkg.price).toLocaleString()}
-                    {pkg.allows_walk_in ? " · Walk-in OK" : ""}
-                  </option>
-                ))}
-              </select>
-              {errors.package_id && <p className="text-red-500 text-xs mt-1">{errors.package_id.message}</p>}
-            </div>
+            {(isGuest || modeFromUrl === "walk_in") && selectablePackages.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                <p className="font-semibold">No walk-in packages available</p>
+                <p className="mt-1 text-amber-800">
+                  The studio has not enabled walk-in on any package yet. Ask staff to turn on walk-in for a package, or book as a full client later.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="block mb-2 text-sm font-medium text-gray-700">Select package</label>
+                <select
+                  {...register("package_id", { required: "Select a package" })}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:border-[#A98B75] outline-none"
+                >
+                  <option value="">Select Package</option>
+                  {selectablePackages.map((pkg) => (
+                    <option key={pkg.id} value={pkg.id}>
+                      {pkg.name} — ₱{Number(pkg.price).toLocaleString()}
+                      {pkg.allows_walk_in ? " · Walk-in OK" : ""}
+                    </option>
+                  ))}
+                </select>
+                {errors.package_id && <p className="text-red-500 text-xs mt-1">{errors.package_id.message}</p>}
+              </div>
+            )}
 
             {selectedPackage && (
               <div className="grid md:grid-cols-2 gap-4">
@@ -305,14 +376,14 @@ export default function CreateBooking() {
               </div>
             )}
 
-            {allowsWalkIn && (
+            {(isGuest || allowsWalkIn) && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Booking type</p>
                 {isGuest ? (
                   <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
                     <span className="block text-sm font-semibold text-sky-900">Walk-in (same day)</span>
                     <span className="block text-xs text-sky-800 mt-0.5">
-                      Guest sessions book today only. Create a password later to schedule future dates.
+                      Guest sessions book today only. Guest login lasts about 2 days — create a password to keep access. Booking records stay with the studio.
                     </span>
                     <input type="hidden" value="walk_in" {...register("booking_mode")} />
                   </div>
@@ -416,13 +487,6 @@ export default function CreateBooking() {
               <label className="block mb-2 text-sm font-medium text-gray-700">Session notes / preferences</label>
               <textarea rows={3} {...register("notes")} placeholder="Tell us about your vibe, outfit ideas, or special requests..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
             </div>
-            <p className="text-xs text-gray-500">
-              By submitting a booking you agree to our{" "}
-              <a href="/terms" target="_blank" rel="noreferrer" className="text-[#A98B75] font-medium hover:underline">
-                Terms and Conditions
-              </a>
-              .
-            </p>
           </div>
 
           {/* DentaBase-style calendar + details panel */}
@@ -439,8 +503,8 @@ export default function CreateBooking() {
                   availabilityByDate={availabilityByDate}
                   selectedDate={selectedDate}
                   onSelectDate={handleSelectDate}
-                  minDate={bookingMode === "walk_in" ? todayIso : null}
-                  maxDate={bookingMode === "walk_in" ? todayIso : null}
+                  minDate={sameDayOnly ? todayIso : null}
+                  maxDate={sameDayOnly ? todayIso : null}
                   allSlotTimes={timeSlotTimes}
                 />
                 {errors.event_date && <p className="text-red-500 text-xs mt-2">{errors.event_date.message}</p>}
@@ -462,7 +526,7 @@ export default function CreateBooking() {
                       {dayStatus === "partial" && <span className="text-sky-700 font-medium">Limited slots available</span>}
                       {dayStatus === "available" && <span className="text-sky-700 font-medium">Open for booking</span>}
                       {dayStatus === "closed" && <span className="text-gray-500 font-medium">Closed</span>}
-                      {bookingMode === "walk_in" && (
+                      {sameDayOnly && (
                         <span className="ml-2 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
                           Walk-in
                         </span>
@@ -538,8 +602,15 @@ export default function CreateBooking() {
                   </div>
                 );
               })}
+              <div className="flex justify-between text-amber-100">
+                <span>Reservation fee</span>
+                <span>₱{RESERVATION_FEE.toLocaleString()}</span>
+              </div>
+              <p className="text-xs text-amber-100/90">
+                A ₱{RESERVATION_FEE.toLocaleString()} reservation fee is added when you pay, on top of the package amount.
+              </p>
               <div className="border-t border-white/20 pt-3 mt-3 flex justify-between text-lg font-bold">
-                <span>Total</span>
+                <span>Package total</span>
                 <span>₱{grandTotal.toLocaleString()}</span>
               </div>
             </div>
@@ -547,7 +618,12 @@ export default function CreateBooking() {
 
           <button
             type="submit"
-            disabled={loading || !selectedDate || !selectedTimeSlot}
+            disabled={
+              loading ||
+              !selectedDate ||
+              !selectedTimeSlot ||
+              ((isGuest || modeFromUrl === "walk_in") && selectablePackages.length === 0)
+            }
             className="w-full py-3.5 rounded-full bg-[#A98B75] text-white font-semibold hover:bg-[#8a7260] transition disabled:opacity-50 shadow-lg shadow-[#A98B75]/20"
           >
             {loading ? "Submitting..." : bookingMode === "walk_in" ? "Book Walk-In Session" : "Book Appointment"}

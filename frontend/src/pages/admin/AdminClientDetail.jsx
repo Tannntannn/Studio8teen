@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import AdminLayout from "../../components/layout/AdminLayout";
-import { getProfile } from "../../services/profiles";
+import ConfirmModal from "../../components/ui/ConfirmModal";
+import { getProfile, manageClientAccount } from "../../services/profiles";
 import { getClientBookings } from "../../services/bookings";
 import { guestDaysRemaining } from "../../services/guestSessions";
+import Swal from "sweetalert2";
 
 const STATUS_COLORS = {
   awaiting_payment: "bg-amber-100 text-amber-700",
@@ -15,16 +17,23 @@ const STATUS_COLORS = {
 
 export default function AdminClientDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [client, setClient] = useState(null);
   const [bookings, setBookings] = useState([]);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [acting, setActing] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
     Promise.all([getProfile(id), getClientBookings(id)])
       .then(([profile, clientBookings]) => {
         setClient(profile);
         setBookings(clientBookings);
       })
       .catch(console.error);
+  };
+
+  useEffect(() => {
+    load();
   }, [id]);
 
   if (!client) {
@@ -37,6 +46,40 @@ export default function AdminClientDetail() {
 
   const isGuest = Boolean(client.is_guest && !client.claimed_at);
   const days = guestDaysRemaining(client.guest_expires_at);
+  const deactivated = Boolean(client.deactivated_at);
+
+  const runAction = async () => {
+    if (!pendingAction) return;
+    setActing(true);
+    try {
+      const result = await manageClientAccount(client.id, pendingAction);
+      const mailNote = result?.emailed ? " They were emailed." : " Guest accounts are not emailed.";
+      if (pendingAction === "delete") {
+        Swal.fire({
+          icon: "success",
+          title: "Account deleted",
+          text: `Their login is removed. Bookings stay on record.${mailNote}`,
+          timer: 2200,
+          showConfirmButton: false,
+        });
+        navigate("/admin/clients", { replace: true });
+        return;
+      }
+      Swal.fire({
+        icon: "success",
+        title: pendingAction === "deactivate" ? "Account deactivated" : "Account reactivated",
+        text: mailNote.trim(),
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      setPendingAction(null);
+      load();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Could not update account", text: err.message });
+    } finally {
+      setActing(false);
+    }
+  };
 
   return (
     <AdminLayout>
@@ -53,18 +96,52 @@ export default function AdminClientDetail() {
                 Registered
               </span>
             )}
+            {deactivated && (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-red-100 text-red-700 font-medium">Deactivated</span>
+            )}
           </div>
           <p className="text-gray-500 mt-1">{client.email}</p>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {deactivated ? (
+              <button
+                type="button"
+                onClick={() => setPendingAction("reactivate")}
+                className="px-4 py-2 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260]"
+              >
+                Reactivate account
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPendingAction("deactivate")}
+                className="px-4 py-2 rounded-xl border border-amber-300 text-amber-800 text-sm font-medium hover:bg-amber-50"
+              >
+                Deactivate account
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setPendingAction("delete")}
+              className="px-4 py-2 rounded-xl border border-red-200 text-red-700 text-sm font-medium hover:bg-red-50"
+            >
+              Delete account
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            {isGuest
+              ? "Guests are not emailed. Registered clients receive an email for deactivate, reactivate, and delete."
+              : "This registered client will get an email when you deactivate, reactivate, or delete the account."}
+          </p>
           {isGuest && (
             <p className="text-sm text-sky-800 bg-sky-50 border border-sky-100 rounded-xl px-4 py-2 mt-3 inline-block">
               {days == null
                 ? "Guest session — expiry unknown"
                 : days === 0
-                  ? "Guest session expires today if not claimed"
-                  : `Guest session expires in about ${days} day${days === 1 ? "" : "s"}`}
+                  ? "Guest login expires today if not claimed"
+                  : `Guest login expires in about ${days} day${days === 1 ? "" : "s"}`}
               {client.guest_expires_at
-                ? ` (${new Date(client.guest_expires_at).toLocaleString()})`
-                : ""}
+                ? ` (${new Date(client.guest_expires_at).toLocaleString()}). Booking/payment records stay after archive.`
+                : ". Booking/payment records stay after archive."}
             </p>
           )}
           {client.claimed_at && (
@@ -125,6 +202,41 @@ export default function AdminClientDetail() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={pendingAction === "deactivate"}
+        title="Deactivate this account?"
+        message={`${client.full_name || "This client"} will not be able to sign in. Their bookings stay. ${
+          isGuest ? "Guest accounts are not emailed." : "They will get an email."
+        }`}
+        confirmLabel="Deactivate"
+        loading={acting}
+        onConfirm={runAction}
+        onCancel={() => !acting && setPendingAction(null)}
+      />
+      <ConfirmModal
+        open={pendingAction === "reactivate"}
+        title="Reactivate this account?"
+        message={`${client.full_name || "This client"} will be able to sign in again. ${
+          isGuest ? "Guest accounts are not emailed." : "They will get an email."
+        }`}
+        confirmLabel="Reactivate"
+        variant="primary"
+        loading={acting}
+        onConfirm={runAction}
+        onCancel={() => !acting && setPendingAction(null)}
+      />
+      <ConfirmModal
+        open={pendingAction === "delete"}
+        title="Delete this account?"
+        message={`This removes ${client.full_name || "this client"}'s login. Bookings stay on the studio records, labeled with their name. ${
+          isGuest ? "Guest accounts are not emailed." : "They will get an email."
+        } This cannot be undone.`}
+        confirmLabel="Delete account"
+        loading={acting}
+        onConfirm={runAction}
+        onCancel={() => !acting && setPendingAction(null)}
+      />
     </AdminLayout>
   );
 }

@@ -1,46 +1,66 @@
 import { Link } from "react-router-dom";
 import BrandLogo from "../../components/ui/BrandLogo";
-import { STUDIO_PHONE_DISPLAY, STUDIO_EMAIL } from "../../lib/constants";
+import { STUDIO_PHONE_DISPLAY, STUDIO_EMAIL, CANCELLATION_FEE } from "../../lib/constants";
 
 const SECTIONS = [
   {
     title: "1. Acceptance of Terms",
-    body: "By creating an account, browsing this website, or booking a photography session with Studio 8Teen, you agree to these Terms and Conditions. If you do not agree, please do not use our services.",
+    body: "By creating an account, starting a Quick Session / walk-in, browsing this website, or booking a photography session with Studio 8Teen Photography Services, you agree to these Terms and Conditions. If you do not agree, please do not use our services.",
   },
   {
-    title: "2. Booking and Reservations",
-    body: "All bookings are subject to studio availability and confirmation by Studio 8Teen. Selecting a package online does not guarantee a slot until the booking is approved and any required payment steps are completed. Incomplete, unpaid, or unapproved bookings may be cancelled according to studio policy.",
+    title: "2. About Studio 8Teen",
+    body: "Studio 8Teen offers professional studio photography, event coverage, photobooth services, and related packages. Hours are typically Monday to Saturday, 9:00 AM to 6:00 PM. Sunday sessions are by appointment only. Contact us at " +
+      STUDIO_PHONE_DISPLAY +
+      " or " +
+      STUDIO_EMAIL +
+      ".",
   },
   {
-    title: "3. Payments",
-    body: "Package prices and add-ons shown in the system are for reference and may be updated by the studio. Downpayments, balances, and accepted payment methods follow the instructions provided in your booking details. Proof of payment may be required before confirmation.",
+    title: "3. Booking and Reservations",
+    body: "All bookings are subject to studio availability and confirmation by Studio 8Teen. Selecting a package online does not guarantee a slot until the booking is approved and required payment steps are completed. Incomplete, unpaid, or unapproved bookings may be cancelled according to studio policy. When possible, book at least one (1) week ahead. Walk-ins may use Quick Session for same-day slots on packages that allow walk-ins; guest login access lasts about two (2) days unless you create a password. Booking and payment records remain with the studio.",
   },
   {
-    title: "4. Cancellations and Rescheduling",
-    body: "Cancellation and rescheduling requests must be submitted through the client portal or by contacting the studio. Applicable fees, refunds, and approval timelines follow Studio 8Teen’s cancellation policy. Confirmed bookings remain active until a cancellation is approved.",
+    title: "4. Payments",
+    body: "You may pay a downpayment (studio default may be around 50%) to confirm your booking, or pay in full. The remaining balance is due before the session/event. We accept GCash, bank transfer, and other methods shown in your booking (including walk-in cash when offered). Scan the payment QR when applicable and upload a clear payment screenshot for verification. Prices and add-ons shown in the system are for reference and may be updated by the studio.",
   },
   {
-    title: "5. Client Responsibilities",
-    body: "Clients are responsible for providing accurate contact information, arriving on time, and following studio guidelines during the session. Late arrivals may shorten the booked time slot. Props, wardrobe, and theme preferences should be communicated ahead of the shoot when possible.",
+    title: "5. Cancellations and Rescheduling",
+    body: `Cancellations and rescheduling are allowed through the client portal or by contacting the studio. Once your booking is approved, a non-refundable cancellation fee of ₱${CANCELLATION_FEE} applies if you cancel. Rescheduling is handled by the studio based on availability. Confirmed bookings remain active until a cancellation is approved.`,
   },
   {
-    title: "6. Image Rights and Delivery",
-    body: "Studio 8Teen retains copyright over photographs unless otherwise agreed in writing. Soft copies and final deliverables are provided according to the selected package. Edited images may be used by the studio for portfolio and marketing unless the client requests otherwise in writing.",
+    title: "6. Late Arrival Policy",
+    body: "Please arrive on time (ideally 15 minutes early for preparation). For every 5 minutes late, a fee of ₱50 may apply. If you are 1 hour late without prior notification, your appointment may be rescheduled and a fee of ₱200 may apply. Late arrivals may also shorten your remaining session time — the slot still ends at the originally scheduled time.",
   },
   {
-    title: "7. Account Use",
-    body: "You are responsible for keeping your login credentials secure. Accounts are for personal booking use and must not be shared or used to disrupt studio operations. Studio 8Teen may suspend accounts that violate these terms.",
+    title: "7. Companions and Studio Use",
+    body: "You may bring only one (1) extra companion not included in the shoot. Additional companions may be charged ₱50 each or asked to wait outside. Clients are responsible for any damage to studio equipment or property; penalties equivalent to the damage value may apply (for example, damage to a backdrop). The studio is not responsible for lost or damaged personal belongings — keep valuables with you.",
   },
   {
-    title: "8. Limitation of Liability",
-    body: "Studio 8Teen will take reasonable care during sessions and delivery of services. The studio is not liable for delays or issues caused by circumstances beyond its control, including weather, venue restrictions, equipment failure after reasonable precautions, or inaccurate information provided by the client.",
+    title: "8. Outdoor and Location Sessions",
+    body: "Outdoor or off-site sessions may be available depending on the package. Select your preferred location when booking. Outdoor sessions may have additional travel fees as communicated by the studio.",
   },
   {
-    title: "9. Changes to These Terms",
+    title: "9. Deliverables and Image Rights",
+    body: "Enhanced soft copies are typically delivered through your Client Portfolio in StudioBook, often the same day when possible. Please download or save your photos promptly. Studio 8Teen retains copyright over photographs unless otherwise agreed in writing. Edited images may be used by the studio for portfolio and marketing unless the client requests otherwise in writing.",
+  },
+  {
+    title: "10. Client Responsibilities",
+    body: "Provide accurate contact information, follow studio guidelines during the session, and prepare outfits, props, or inspiration references as needed. Mood board suggestions (including auto-generated outfit/prop visuals) are creative guidance only and do not guarantee specific products, rentals, or results.",
+  },
+  {
+    title: "11. Account Use",
+    body: "You are responsible for keeping login credentials secure. Guest / walk-in sessions are temporary. Creating a password converts your guest session into a lasting client account. Accounts must not be shared or used to disrupt studio operations. Studio 8Teen may suspend accounts that violate these terms.",
+  },
+  {
+    title: "12. Limitation of Liability",
+    body: "Studio 8Teen will take reasonable care during sessions and delivery of services. The studio is not liable for delays or issues caused by circumstances beyond its control, including weather, venue restrictions, equipment failure after reasonable precautions, third-party payment platforms, or inaccurate information provided by the client.",
+  },
+  {
+    title: "13. Changes to These Terms",
     body: "Studio 8Teen may update these Terms and Conditions from time to time. Continued use of the website or booking system after changes are posted constitutes acceptance of the updated terms.",
   },
   {
-    title: "10. Contact",
+    title: "14. Contact",
     body: `For questions about these terms or your booking, contact Studio 8Teen at ${STUDIO_PHONE_DISPLAY} or ${STUDIO_EMAIL}.`,
   },
 ];
@@ -63,7 +83,9 @@ export default function Terms() {
           Terms and Conditions
         </h1>
         <p className="mt-4 text-gray-500 leading-relaxed">
-          Please read these terms carefully before registering or booking a session with Studio 8Teen Photography Services.
+          Please read these terms carefully before registering, starting a walk-in Quick Session, or
+          booking with Studio 8Teen Photography Services. These terms reflect Studio 8Teen&apos;s
+          booking, payment, late, cancellation, and studio-use policies.
         </p>
 
         <div className="mt-10 space-y-6">
@@ -78,8 +100,8 @@ export default function Terms() {
           ))}
         </div>
 
-        <p className="mt-10 text-xs text-gray-400">
-          Last updated: July 2026
+        <p className="mt-10 text-center text-xs text-gray-400">
+          Last updated {new Date().toLocaleDateString(undefined, { year: "numeric", month: "long" })}
         </p>
       </main>
     </div>

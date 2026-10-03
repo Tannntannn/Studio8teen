@@ -1,8 +1,11 @@
-import { FaChevronDown, FaLightbulb, FaPalette, FaTshirt, FaCube, FaSun, FaMagic, FaTags } from "react-icons/fa";
+import { FaChevronDown, FaLightbulb, FaTshirt, FaCube, FaSun, FaMagic, FaTags } from "react-icons/fa";
 import { useState } from "react";
 import MoodBoardCollage from "./MoodBoardCollage";
 import { asColorArray, asStringArray } from "../../services/moodBoardThemes";
 import { asCategoryValues } from "../../services/moodBoardCategories";
+import { enrichMoodBoardWithStock } from "../../lib/enrichMoodBoardStock";
+import { stockFallbackUrl } from "../../lib/eventMoodCatalog";
+import { getEventDesign } from "../../lib/eventDesigns";
 
 function TagList({ items, emptyLabel = "None listed" }) {
   const list = asStringArray(items);
@@ -20,24 +23,67 @@ function TagList({ items, emptyLabel = "None listed" }) {
   );
 }
 
-function ColorPalette({ colors }) {
-  const palette = asColorArray(colors);
-  if (!palette.length) {
-    return <p className="text-sm text-gray-400 italic">No palette defined for this theme yet.</p>;
+/** Recommendation text shown as labeled image cards (4 outfits / 4 props) */
+function RecommendationCards({ items, emptyLabel, accent = "#A98B75" }) {
+  if (!items?.length) {
+    return <p className="text-sm text-gray-400 italic">{emptyLabel}</p>;
   }
   return (
-    <div className="flex flex-wrap gap-3">
-      {palette.map((hex) => (
-        <div key={hex} className="text-center">
-          <div
-            className="w-12 h-12 rounded-xl border border-[#E8E1DA] shadow-sm"
-            style={{ backgroundColor: hex }}
-            title={hex}
-          />
-          <span className="text-[10px] text-gray-400 mt-1 block font-mono">{hex}</span>
-        </div>
+    <div className="grid grid-cols-2 gap-3">
+      {items.map((item) => (
+        <RecommendationCard key={item.id || item.label} item={item} accent={accent} />
       ))}
     </div>
+  );
+}
+
+function RecommendationCard({ item, accent }) {
+  const [src, setSrc] = useState(item.url);
+  const [stage, setStage] = useState(0);
+
+  const onError = () => {
+    if (stage === 0) {
+      setStage(1);
+      setSrc(
+        item.fallbackUrl ||
+          stockFallbackUrl(item.label, { kind: item.kind || "outfit", index: 0 })
+      );
+    } else {
+      setStage(2);
+      setSrc(null);
+    }
+  };
+
+  return (
+    <figure className="rounded-xl overflow-hidden border border-[#E8E1DA] bg-white shadow-sm">
+      <div className="aspect-[4/5] relative bg-[#F8F6F3]">
+        {src && stage < 2 ? (
+          <img
+            src={src}
+            alt={item.label || ""}
+            className="absolute inset-0 w-full h-full object-cover"
+            loading="lazy"
+            onError={onError}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center p-3 text-center"
+            style={{ background: `linear-gradient(145deg, ${accent}28, #f8f4ef)` }}
+          >
+            <span className="text-xs font-semibold text-[#5B4636] leading-snug">{item.label}</span>
+          </div>
+        )}
+        <span
+          className="absolute top-2 left-2 text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded text-white"
+          style={{ backgroundColor: accent }}
+        >
+          {item.kind === "prop" ? "Prop" : "Outfit"}
+        </span>
+      </div>
+      <figcaption className="px-2.5 py-2 text-xs font-medium text-[#5B4636] leading-snug text-center">
+        {item.label}
+      </figcaption>
+    </figure>
   );
 }
 
@@ -52,41 +98,54 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAggregated, isPersonalized }) {
+export default function MoodBoardDisplay({ theme, eventType, sessionNotes }) {
   const [detailsOpen, setDetailsOpen] = useState(true);
-  const images = theme.inspiration_images || [];
-  const tags = asStringArray(theme.tags);
-  const colors = asColorArray(theme.color_palette);
+  const eventLabel = eventType || theme?.event_type || "";
+  const design = getEventDesign(eventLabel);
 
-  const moods = asCategoryValues(theme.mood);
-  const styles = asCategoryValues(theme.photography_style);
+  // Always ensure 4 outfits + 4 props when rendering
+  const board = enrichMoodBoardWithStock(theme, eventLabel);
+
+  const images = board.inspiration_images || [];
+  const tags = asStringArray(board.tags);
+  const colors = asColorArray(board.color_palette);
+
+  const moods = asCategoryValues(board.mood);
+  const styles = asCategoryValues(board.photography_style);
+
+  const outfitCards = board.outfit_cards || [];
+  const propCards = board.prop_cards || [];
+  const accent = design.accent || "#A98B75";
 
   const hasStyleDetails =
     colors.length > 0 ||
-    asStringArray(theme.outfit_suggestions).length ||
-    asStringArray(theme.prop_suggestions).length ||
-    theme.lighting_style ||
-    theme.editing_style ||
+    outfitCards.length ||
+    propCards.length ||
+    asStringArray(board.outfit_suggestions).length ||
+    asStringArray(board.prop_suggestions).length ||
+    board.lighting_style ||
+    board.editing_style ||
     moods.length ||
     styles.length ||
-    theme.location_type ||
+    board.location_type ||
     tags.length ||
-    theme.additional_notes;
+    board.additional_notes;
 
-  const eventLabel = eventType || theme.event_type || "";
-  const collageSubtitle = eventLabel
-    ? `${eventLabel} inspiration`
-    : "Inspiration";
+  const collageTitle = board.main_theme_name || board.name || eventLabel || "Inspiration";
+  const collageSubtitle =
+    board.description?.split(/[.!?]/)[0]?.trim() ||
+    (eventLabel ? `${collageTitle} · ${eventLabel}` : collageTitle);
 
   return (
     <div className="space-y-6 animate-[pageFadeIn_0.35s_ease-out]">
-      {/* Collage is the page — like moodboardai inspiration cards */}
       <MoodBoardCollage
-        title={theme.name}
+        title={collageTitle}
         subtitle={collageSubtitle}
         images={images}
         colors={colors}
         eventType={eventLabel}
+        outfits={board.outfit_images || []}
+        props={board.prop_images || []}
       />
 
       {sessionNotes && (
@@ -111,22 +170,30 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
 
           {detailsOpen && (
             <div className="px-5 pb-5 space-y-4 border-t border-[#E8E1DA] pt-4">
-              <Section icon={FaPalette} title="Recommended color palette">
-                <ColorPalette colors={theme.color_palette} />
-              </Section>
-
               <div className="grid md:grid-cols-2 gap-4">
                 <Section icon={FaTshirt} title="Suggested outfits">
-                  <TagList items={theme.outfit_suggestions} emptyLabel="No outfit suggestions yet." />
+                  <RecommendationCards
+                    items={outfitCards}
+                    emptyLabel="No outfit suggestions yet."
+                    accent={accent}
+                  />
                 </Section>
                 <Section icon={FaCube} title="Suggested props">
-                  <TagList items={theme.prop_suggestions} emptyLabel="No prop suggestions yet." />
+                  <RecommendationCards
+                    items={propCards}
+                    emptyLabel="No prop suggestions yet."
+                    accent={accent}
+                  />
                 </Section>
                 <Section icon={FaSun} title="Recommended lighting">
-                  <p className="text-sm text-gray-600 leading-relaxed">{theme.lighting_style || "Not specified yet."}</p>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    {board.lighting_style || "Soft natural / studio-balanced light."}
+                  </p>
                 </Section>
                 <Section icon={FaMagic} title="Recommended editing style">
-                  <p className="text-sm text-gray-600 leading-relaxed">{theme.editing_style || "Not specified yet."}</p>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    {board.editing_style || "Clean, true-to-skin tones with gentle polish."}
+                  </p>
                 </Section>
               </div>
 
@@ -136,10 +203,18 @@ export default function MoodBoardDisplay({ theme, eventType, sessionNotes, isAgg
                 </Section>
               )}
 
-              {theme.additional_notes && (
+              {board.additional_notes && (
                 <Section icon={FaLightbulb} title="Additional notes">
-                  <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{theme.additional_notes}</p>
+                  <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                    {board.additional_notes}
+                  </p>
                 </Section>
+              )}
+
+              {board.stock_enriched && (
+                <p className="text-[11px] text-gray-400 text-center pt-1">
+                  Outfit and prop visuals are auto-filled to 8 photos for this event. Studio uploads still override when available.
+                </p>
               )}
             </div>
           )}

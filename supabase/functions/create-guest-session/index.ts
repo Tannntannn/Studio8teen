@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     // Synthetic email — real email is collected later during walk-in booking contact step
     const email = `walkin.${slugifyName(fullName)}.${crypto.randomUUID().slice(0, 8)}@guest.studio8teen.local`;
     const password = randomPassword();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email,

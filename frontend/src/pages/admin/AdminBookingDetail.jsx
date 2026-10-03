@@ -7,14 +7,16 @@ import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
-import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking } from "../../services/bookings";
+import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking, confirmPaidBooking, disapprovePaidBooking } from "../../services/bookings";
 import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 import { formatTime12h } from "../../lib/dateUtils";
 import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
+import { supabase } from "../../lib/supabase";
 
 const STATUS_STYLES = {
+  pending: "bg-amber-100 text-amber-800",
   awaiting_payment: "bg-amber-100 text-amber-800",
   payment_submitted: "bg-blue-100 text-blue-800",
   confirmed: "bg-green-100 text-green-800",
@@ -74,10 +76,61 @@ export default function AdminBookingDetail() {
 
   const payment = booking?.payments?.[0];
 
+  const handleConfirmPaid = async () => {
+    try {
+      await confirmPaidBooking(id);
+      try {
+        await supabase.functions.invoke("finalize-guest-booking", { body: { booking_id: id } });
+      } catch {
+        /* optional */
+      }
+      Swal.fire({
+        icon: "success",
+        title: "Booking confirmed",
+        text: "The client has been notified.",
+        timer: 2200,
+        showConfirmButton: false,
+      });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleDisapprovePaid = async () => {
+    const { value: note, isConfirmed } = await Swal.fire({
+      title: "Disapprove this booking?",
+      text: "The slot is released and the client is notified.",
+      input: "text",
+      inputPlaceholder: "Reason",
+      showCancelButton: true,
+      confirmButtonText: "Disapprove",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!isConfirmed) return;
+    try {
+      await disapprovePaidBooking(id, note || "Booking was not approved by the studio");
+      navigate("/admin/bookings", { replace: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleVerify = async () => {
     if (!payment) return;
     try {
       await verifyPayment(payment.id, id, user.id);
+      // Archive walk-in guest login after confirm; booking + guest_snapshot stay
+      try {
+        const { data: fin, error: finErr } = await supabase.functions.invoke("finalize-guest-booking", {
+          body: { booking_id: id },
+        });
+        if (finErr || fin?.error) {
+          console.warn("Guest finalize issue:", finErr?.message || fin?.error);
+        }
+      } catch (guestErr) {
+        console.warn("Guest finalize skipped:", guestErr?.message || guestErr);
+      }
       Swal.fire({
         icon: "success",
         title: "Booking confirmed",
@@ -222,6 +275,16 @@ export default function AdminBookingDetail() {
   const handleMarkCompleted = async () => {
     try {
       await updateBooking(id, { status: "completed" });
+      try {
+        const { data: fin, error: finErr } = await supabase.functions.invoke("finalize-guest-booking", {
+          body: { booking_id: id, archive: true },
+        });
+        if (finErr || fin?.error) {
+          console.warn("Guest archive issue:", finErr?.message || fin?.error);
+        }
+      } catch (guestErr) {
+        console.warn("Guest archive skipped:", guestErr?.message || guestErr);
+      }
       setCompleteOpen(false);
       load();
     } catch (err) {
@@ -293,7 +356,7 @@ export default function AdminBookingDetail() {
                 </button>
               </>
             )}
-            {["awaiting_payment", "payment_submitted"].includes(booking.status) && (
+            {["awaiting_payment", "payment_submitted", "pending"].includes(booking.status) && (
               <button
                 type="button"
                 onClick={handleRejectBooking}
@@ -338,9 +401,14 @@ export default function AdminBookingDetail() {
               <FaUser className="text-[#A98B75]" size={13} />
               {booking.profiles?.full_name || "—"} · {booking.profiles?.email || "no email"}
             </span>
-            {booking.is_walk_in && (
+            {(booking.is_walk_in || booking.profiles?.is_guest) && (
               <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-semibold">
-                Walk-in
+                {booking.is_walk_in ? "Walk-in" : "Guest"}
+              </span>
+            )}
+            {booking.profiles?.is_guest && !booking.profiles?.claimed_at && (
+              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">
+                Guest account
               </span>
             )}
           </div>
@@ -365,11 +433,27 @@ export default function AdminBookingDetail() {
                 </div>
                 <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
                   <dt className="text-gray-400">Contact</dt>
-                  <dd>{booking.contact_number || "—"}</dd>
+                  <dd>
+                    {booking.contact_number ||
+                      booking.guest_snapshot?.phone ||
+                      booking.profiles?.phone ||
+                      "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
+                  <dt className="text-gray-400">Email</dt>
+                  <dd className="text-right max-w-[60%] break-all">
+                    {booking.guest_snapshot?.email || booking.profiles?.email || "—"}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
                   <dt className="text-gray-400">Address</dt>
-                  <dd className="text-right max-w-[60%]">{booking.client_address || "—"}</dd>
+                  <dd className="text-right max-w-[60%]">
+                    {booking.client_address ||
+                      booking.guest_snapshot?.address ||
+                      booking.profiles?.address ||
+                      "—"}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-gray-400 mb-1">Client notes</dt>
@@ -454,13 +538,25 @@ export default function AdminBookingDetail() {
                     </div>
                   )}
 
+                  {payment.notes && payment.notes.length <= 80 && !/create table|insert into|select /i.test(payment.notes) && (
+                    <p className="text-sm text-[#5B4636] mb-3 px-1">
+                      Method: {payment.notes}
+                    </p>
+                  )}
+
                   {payment.rejection_note && (
                     <p className="text-red-600 text-sm mb-4 p-3 bg-red-50 rounded-xl border border-red-100">
                       Rejection note: {payment.rejection_note}
                     </p>
                   )}
 
-                  {payment.status === "submitted" && (
+                  {payment.status === "submitted" && ["cancelled", "completed", "confirmed"].includes(booking.status) && (
+                    <p className="text-sm text-gray-600 p-3 bg-[#F8F6F3] rounded-xl border border-[#E8E1DA]">
+                      This booking is already {booking.status.replace(/_/g, " ")}, so this old payment proof does not need verification.
+                    </p>
+                  )}
+
+                  {payment.status === "submitted" && !["cancelled", "completed", "confirmed"].includes(booking.status) && (
                     <div className="flex flex-wrap gap-3 mt-auto pt-2">
                       <button
                         type="button"
@@ -479,9 +575,31 @@ export default function AdminBookingDetail() {
                     </div>
                   )}
 
-                  {payment.status === "verified" && (
+                  {payment.status === "verified" && booking.status === "pending" && (
+                    <div className="flex flex-wrap gap-3 mt-auto pt-2">
+                      <button
+                        type="button"
+                        onClick={handleConfirmPaid}
+                        className="flex-1 min-w-[160px] px-5 py-3 rounded-xl bg-[#A98B75] text-white text-sm font-medium hover:bg-[#8a7260] transition"
+                      >
+                        Confirm booking
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDisapprovePaid}
+                        className="flex-1 min-w-[120px] px-5 py-3 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition"
+                      >
+                        Disapprove
+                      </button>
+                    </div>
+                  )}
+
+                  {payment.status === "verified" && booking.status !== "pending" && (
                     <p className="text-green-600 text-sm font-medium p-3 bg-green-50 rounded-xl border border-green-100">
-                      Payment verified — booking confirmed. Client QR code is now active.
+                      Payment received
+                      {booking.status === "confirmed" || booking.status === "completed"
+                        ? " — booking confirmed. Client QR code is now active."
+                        : "."}
                     </p>
                   )}
                 </div>

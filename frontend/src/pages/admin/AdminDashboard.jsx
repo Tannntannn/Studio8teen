@@ -3,6 +3,8 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import AvailabilityHeatmap from "../../components/admin/AvailabilityHeatmap";
 import ClientPreparationOverview from "../../components/admin/ClientPreparationOverview";
 import PendingVerifications from "../../components/admin/PendingVerifications";
+import PaidBookingApprovals from "../../components/admin/PaidBookingApprovals";
+import ActivityLogList from "../../components/admin/ActivityLogList";
 import { getBookingStats } from "../../services/bookings";
 import { getRevenueStats } from "../../services/payments";
 
@@ -35,6 +37,11 @@ export default function AdminDashboard() {
               <p className="text-3xl font-bold text-[#5B4636] mt-2">{c.value}</p>
             </div>
           ))}
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+          <PaidBookingApprovals />
+          <ActivityLogList />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">

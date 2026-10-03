@@ -109,14 +109,15 @@ function RegisterForm() {
             type="checkbox"
             className="mt-1 accent-[#A98B75]"
             {...register("acceptTerms", {
-              required: "Please accept the Terms and Conditions",
+              required: "Please agree to the Terms and Conditions",
             })}
           />
           <span>
-            I agree to the{" "}
+            I have read and agree to the Studio 8Teen{" "}
             <Link to="/terms" target="_blank" className="text-[#A98B75] font-semibold hover:underline">
               Terms and Conditions
             </Link>
+            .
           </span>
         </label>
         {errors.acceptTerms && <p className="text-red-500 text-xs -mt-3">{errors.acceptTerms.message}</p>}

@@ -71,6 +71,11 @@ export default function AdminClients() {
                           Registered
                         </span>
                       )}
+                      {c.deactivated_at && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
+                          Deactivated
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-500">{c.email}</p>
                     {isGuest && (

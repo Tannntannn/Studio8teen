@@ -69,10 +69,10 @@ export default function CalendarPage() {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     const slots = availability.filter((a) => a.avail_date === date && a.is_enabled !== false);
     if (!slots.length) return 0;
-    const totalCap = slots.reduce((s, a) => s + a.capacity, 0);
-    const booked = slots.reduce((s, a) => s + a.booked_count, 0);
-    if (totalCap === 0) return 0;
-    return booked / totalCap;
+    const totalCap = slots.reduce((s, a) => s + (Number(a.capacity) || 0), 0);
+    const booked = slots.reduce((s, a) => s + (Number(a.booked_count) || 0), 0);
+    if (totalCap <= 0) return 1;
+    return Math.min(1, booked / totalCap);
   };
 
   const heatColor = (ratio) => availabilityHeatClass(ratio);
@@ -99,9 +99,9 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-2 mb-8">
+        <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-8">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-            <div key={d} className="text-center text-xs font-medium text-gray-500 py-2">{d}</div>
+            <div key={d} className="text-center text-[10px] sm:text-xs font-medium text-gray-500 py-2">{d.slice(0, 1)}<span className="hidden sm:inline">{d.slice(1)}</span></div>
           ))}
           {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
             const heat = getHeat(day);
@@ -109,12 +109,13 @@ export default function CalendarPage() {
             return (
               <div
                 key={day}
-                className={`min-h-[72px] rounded-xl flex flex-col items-center justify-center text-sm border p-1 ${heatColor(heat)}`}
+                className={`min-h-[52px] sm:min-h-[72px] rounded-lg sm:rounded-xl flex flex-col items-center justify-center text-xs sm:text-sm border p-0.5 sm:p-1 overflow-hidden ${heatColor(heat)}`}
               >
                 <span className="font-medium">{day}</span>
-                <span className="text-[10px] font-medium">{availabilityHeatLabel(heat)}</span>
+                <span className="hidden sm:block text-[10px] font-medium text-center leading-tight">{availabilityHeatLabel(heat)}</span>
+                {mine.length > 0 && <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[#5B4636] sm:hidden" />}
                 {mine.length > 0 && (
-                  <span className="text-[9px] mt-0.5 font-medium">Your booking</span>
+                  <span className="hidden sm:block text-[9px] mt-0.5 font-medium">Your booking</span>
                 )}
               </div>
             );
@@ -128,8 +129,8 @@ export default function CalendarPage() {
         <h2 className="font-semibold text-[#5B4636] mb-4">Your Bookings This Month</h2>
         <div className="space-y-3">
           {bookings.filter((b) => b.event_date?.startsWith(month)).map((b) => (
-            <div key={b.id} className="bg-white rounded-xl border border-[#E8E1DA] p-4 flex justify-between gap-3">
-              <span>{b.packages?.name} — {b.event_date} at {formatTime12h(b.time_slot)}</span>
+            <div key={b.id} className="bg-white rounded-xl border border-[#E8E1DA] p-4 flex flex-col sm:flex-row sm:justify-between gap-2">
+              <span className="min-w-0 break-words">{b.packages?.name} — {b.event_date} at {formatTime12h(b.time_slot)}</span>
               <span className="text-xs capitalize text-[#A98B75] shrink-0">{b.status.replace(/_/g, " ")}</span>
             </div>
           ))}

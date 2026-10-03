@@ -5,9 +5,11 @@ import MoodBoardDisplay from "../../components/moodboard/MoodBoardDisplay";
 import CategoryMultiSelect from "../../components/ui/CategoryMultiSelect";
 import { getActiveThemes } from "../../services/moodBoardThemes";
 import { EVENT_TYPES } from "../../lib/moodBoardOptions";
+import { getEventDesign } from "../../lib/eventDesigns";
 import { getMoodBoardCategoryLabels, groupedLabelsWithFallback, groupCategoryRows } from "../../services/moodBoardCategories";
 import { filterThemesByEvent } from "../../lib/themeMatching";
 import { generateMoodBoard } from "../../lib/moodBoardEngine";
+import { enrichMoodBoardWithStock } from "../../lib/enrichMoodBoardStock";
 
 const EMPTY_PREFS = {
   eventType: "",
@@ -60,7 +62,7 @@ export default function MoodBoardGenerator() {
     setPrefs((p) => ({ ...p, eventType: value }));
   };
 
-  const handleGenerate = (e) => {
+  const handleGenerate = async (e) => {
     e.preventDefault();
     setGenerateError(null);
 
@@ -76,13 +78,14 @@ export default function MoodBoardGenerator() {
 
     setGenerating(true);
     try {
-      const result = generateMoodBoard(themes, prefs, { topN: 12 });
+      let result = generateMoodBoard(themes, prefs, { topN: 8, allowStockFallback: true });
       if (result.error) {
         setGenerateError(result.error);
         setGenerated(null);
         return;
       }
-      setGenerated(result.moodBoard);
+      const enriched = enrichMoodBoardWithStock(result.moodBoard, prefs.eventType);
+      setGenerated(enriched);
       setGeneratedMeta({
         eventType: prefs.eventType,
         sessionNotes: sessionNotes.trim() || null,
@@ -114,8 +117,9 @@ export default function MoodBoardGenerator() {
           </div>
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Mood Board Generator</h1>
           <p className="mt-2 text-gray-500 max-w-xl mx-auto">
-            Tell us about your event and preferences. We&apos;ll match studio inspiration photos
-            into a visual mood board collage tailored to your session.
+            Tell us about your event and preferences. We&apos;ll build a collage with outfits, props,
+            and backgrounds matched to your event — including auto image suggestions so the studio
+            doesn&apos;t have to upload every asset.
           </p>
         </div>
         )}
@@ -136,31 +140,72 @@ export default function MoodBoardGenerator() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 mb-3">
                 Event type <span className="text-red-500">*</span>
               </label>
-              <select
-                value={prefs.eventType}
-                onChange={(e) => handleEventChange(e.target.value)}
-                required
-                className="w-full border border-[#E8E1DA] rounded-xl px-4 py-3 outline-none focus:border-[#A98B75] bg-white"
-              >
-                <option value="">What are you celebrating?</option>
-                {EVENT_TYPES.map((ev) => (
-                  <option key={ev} value={ev}>{ev}</option>
-                ))}
-              </select>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {EVENT_TYPES.map((ev) => {
+                  const design = getEventDesign(ev);
+                  const active = prefs.eventType === ev;
+                  return (
+                    <button
+                      key={ev}
+                      type="button"
+                      onClick={() => handleEventChange(ev)}
+                      className={`relative overflow-hidden rounded-2xl border text-left transition focus:outline-none focus:ring-2 focus:ring-[#A98B75]/40 ${
+                        active
+                          ? "border-[#A98B75] ring-2 ring-[#A98B75]/25 shadow-md"
+                          : "border-[#E8E1DA] hover:border-[#A98B75]/50 hover:shadow-sm"
+                      }`}
+                    >
+                      <div
+                        className="aspect-[4/3] relative overflow-hidden bg-[#E8E1DA]"
+                        style={{ background: design.ground }}
+                      >
+                        <img
+                          src={design.cover}
+                          alt=""
+                          className="absolute inset-0 w-full h-full object-cover object-center"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.opacity = "0";
+                          }}
+                        />
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background: `linear-gradient(to top, ${design.ink}cc 0%, transparent 55%)`,
+                          }}
+                        />
+                        <div className="absolute inset-x-0 bottom-0 p-2.5 sm:p-3">
+                          <p className="text-white text-sm font-semibold leading-tight drop-shadow">
+                            {ev}
+                          </p>
+                          <p className="hidden sm:block text-white/80 text-[10px] mt-0.5 line-clamp-2 leading-snug">
+                            {design.tagline}
+                          </p>
+                        </div>
+                        {active && (
+                          <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#A98B75] text-white text-[10px] flex items-center justify-center font-bold shadow">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
               {prefs.eventType && !noImagesForEvent && (
-                <p className="text-xs text-gray-400 mt-1.5">
-                  Your mood board collage will show up to 12 photos
+                <p className="text-xs text-gray-400 mt-2">
+                  Your mood board collage will show 8 photos
                   {candidateImageCount < 12
                     ? ` (${candidateImageCount} tagged for ${prefs.eventType}; extras filled from the studio library).`
                     : ` from the best matches for ${prefs.eventType}.`}
                 </p>
               )}
               {noImagesForEvent && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-2">
-                  No inspiration images are tagged for {prefs.eventType} yet. Try another event type, or contact the studio.
+                <p className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2 mt-2">
+                  No studio uploads for {prefs.eventType} yet — we&apos;ll auto-suggest outfits, props, and backgrounds for this event.
                 </p>
               )}
             </div>

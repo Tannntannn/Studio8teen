@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
+  FaTimes,
   FaTachometerAlt,
   FaCalendarAlt,
   FaUsers,
@@ -13,6 +14,7 @@ import {
   FaTimesCircle,
   FaQrcode,
   FaPalette,
+  FaBell,
 } from "react-icons/fa";
 import BrandLogo from "../ui/BrandLogo";
 import ConfirmModal from "../ui/ConfirmModal";
@@ -21,6 +23,7 @@ import { getUnreadPendingCount, subscribePendingBookings } from "../../services/
 
 const menuItems = [
   { name: "Dashboard", path: "/admin/dashboard", icon: FaTachometerAlt },
+  { name: "Notifications", path: "/admin/notifications", icon: FaBell },
   { name: "Bookings", path: "/admin/bookings", icon: FaCalendarAlt, showBadge: true },
   { name: "Clients", path: "/admin/clients", icon: FaUsers },
   { name: "Packages", path: "/admin/packages", icon: FaBox },
@@ -34,9 +37,10 @@ const menuItems = [
   { name: "Settings", path: "/admin/settings", icon: FaCog },
 ];
 
-export default function AdminSidebar() {
+export default function AdminSidebar({ open = false, onClose = () => {} }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [unreadCount, setUnreadCount] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -50,6 +54,10 @@ export default function AdminSidebar() {
     return subscribePendingBookings(refreshUnread);
   }, []);
 
+  useEffect(() => {
+    onClose();
+  }, [pathname]);
+
   const handleLogout = async () => {
     setLoggingOut(true);
     setLogoutOpen(false);
@@ -60,17 +68,35 @@ export default function AdminSidebar() {
 
   return (
     <>
+    {open && (
+      <button
+        type="button"
+        className="md:hidden fixed inset-0 z-40 bg-[#5B4636]/40"
+        aria-label="Close menu"
+        onClick={onClose}
+      />
+    )}
     <aside
-      className={`group/sidebar fixed left-0 top-0 z-40 h-screen w-20 hover:w-72 bg-[#5B4636] text-white flex flex-col transition-[width] duration-300 ease-in-out overflow-hidden shadow-lg ${loggingOut ? "opacity-0 transition-opacity duration-300" : ""}`}
+      className={`group/sidebar fixed left-0 top-0 z-50 md:z-40 h-screen w-72 md:w-20 md:hover:w-72 bg-[#5B4636] text-white flex flex-col transition-all duration-300 ease-in-out overflow-hidden shadow-lg ${
+        open ? "translate-x-0" : "-translate-x-full"
+      } md:translate-x-0 ${loggingOut ? "opacity-0" : ""}`}
       aria-label="Admin navigation"
     >
       <div className="p-5 border-b border-white/10 min-h-[88px] flex items-center">
         <div className="flex-shrink-0 w-10 overflow-hidden rounded-lg bg-white/10 p-0.5 group-hover/sidebar:w-auto">
           <BrandLogo to="/admin/dashboard" size="sm" className="[&_img]:brightness-110" />
         </div>
-        <div className="ml-3 opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap overflow-hidden hidden group-hover/sidebar:block">
+        <div className="ml-3 whitespace-nowrap overflow-hidden md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-300">
           <p className="text-xs text-white/60">Admin Portal</p>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="md:hidden ml-auto w-9 h-9 rounded-lg text-white/80 hover:bg-white/10 flex items-center justify-center"
+          aria-label="Close menu"
+        >
+          <FaTimes size={14} />
+        </button>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto overflow-x-hidden">
@@ -81,6 +107,7 @@ export default function AdminSidebar() {
               key={item.path}
               to={item.path}
               title={item.name}
+              onClick={onClose}
               className={({ isActive }) =>
                 `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
                   isActive ? "bg-[#A98B75] text-white" : "text-white/70 hover:bg-white/10"
@@ -88,7 +115,7 @@ export default function AdminSidebar() {
               }
             >
               <Icon size={18} className="flex-shrink-0 mx-1" />
-              <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap overflow-hidden">
+              <span className="whitespace-nowrap overflow-hidden md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-300">
                 {item.name}
               </span>
               {item.showBadge && unreadCount > 0 && (
@@ -109,7 +136,7 @@ export default function AdminSidebar() {
           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-300 hover:bg-white/10 text-sm transition-colors"
         >
           <FaSignOutAlt size={18} className="flex-shrink-0 mx-1" />
-          <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap">
+          <span className="whitespace-nowrap md:opacity-0 md:group-hover/sidebar:opacity-100 transition-opacity duration-300">
             {loggingOut ? "Logging out..." : "Logout"}
           </span>
         </button>

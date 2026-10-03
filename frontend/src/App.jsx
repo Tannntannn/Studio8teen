@@ -9,6 +9,7 @@ import Register from "./pages/authpage/Register";
 import ForgotPass from "./pages/authpage/ForgotPass";
 import ResetPassword from "./pages/authpage/ResetPassword";
 import QuickSession from "./pages/authpage/QuickSession";
+import ResumeWalkIn from "./pages/authpage/ResumeWalkIn";
 import ClaimAccount from "./pages/authpage/ClaimAccount";
 import ClientPortfolio from "./pages/public/ClientPortfolio";
 import Terms from "./pages/public/Terms";
@@ -61,6 +62,7 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPass />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/quick-session" element={<QuickSession />} />
+        <Route path="/resume-walk-in" element={<ResumeWalkIn />} />
         <Route path="/claim-account" element={<ProtectedRoute role="client"><ClaimAccount /></ProtectedRoute>} />
         <Route path="/client-portfolio" element={<ClientPortfolio />} />
         <Route path="/terms" element={<Terms />} />
@@ -83,6 +85,7 @@ function AppRoutes() {
 
         {/* Admin portal */}
         <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/notifications" element={<ProtectedRoute role="admin"><Notifications /></ProtectedRoute>} />
         <Route path="/admin/mood-board-themes" element={<ProtectedRoute role="admin"><AdminMoodBoardThemes /></ProtectedRoute>} />
         <Route path="/admin/mood-board" element={<Navigate to="/admin/mood-board-themes" replace />} />
         <Route path="/admin/mood-themes" element={<Navigate to="/admin/mood-board-themes" replace />} />

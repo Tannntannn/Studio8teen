@@ -51,6 +51,13 @@ body {
   letter-spacing: -0.01em;
 }
 
+@media (max-width: 639px) {
+  .heading-serif.text-4xl {
+    font-size: 1.875rem;
+    line-height: 1.15;
+  }
+}
+
 /* Soft atmospheric page shell used by public / auth / dashboards */
 .app-shell {
   background-color: var(--brand-cream);

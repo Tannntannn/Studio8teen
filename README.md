@@ -8,6 +8,7 @@ Full-stack capstone: React + Supabase + Cloudinary + Vercel.
 - **Backend:** Supabase (Auth, PostgreSQL, RLS, Edge Functions)
 - **Images:** Cloudinary CDN (portfolio, client galleries, payment proofs)
 - **Deploy:** Vercel
+- **Payments:** PayMongo live checkout (GCash). Paid bookings stay pending until an admin confirms them.
 
 ## Setup
 

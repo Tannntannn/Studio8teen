@@ -55,11 +55,12 @@ export default function QuickSession() {
   return (
     <AuthShell
       title="Walk-in session"
-      subtitle="Name only — contact details come next"
+      subtitle="Walk-in packages only — same day"
     >
       <p className="text-sm text-gray-500 mb-5 text-center leading-relaxed">
-        Enter your name to start. After you pick a package, you&apos;ll add phone, email, and address
-        so the studio can confirm your booking.
+        Enter your name to start. You&apos;ll only see packages with walk-in enabled. Guest login lasts about
+        2 days — create a password to keep it, or use Resume walk-in with your email and phone. Your booking
+        and payment stay with the studio either way.
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -77,6 +78,26 @@ export default function QuickSession() {
           {errors.fullName && <p className="text-red-500 text-xs mt-1">{errors.fullName.message}</p>}
         </div>
 
+        <label className="flex items-start gap-3 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            className="mt-1 accent-[#A98B75]"
+            {...register("acceptTerms", {
+              required: "Please agree to the Terms and Conditions",
+            })}
+          />
+          <span>
+            I have read and agree to the Studio 8Teen{" "}
+            <Link to="/terms" target="_blank" className="text-[#A98B75] font-semibold hover:underline">
+              Terms and Conditions
+            </Link>
+            .
+          </span>
+        </label>
+        {errors.acceptTerms && (
+          <p className="text-red-500 text-xs -mt-2">{errors.acceptTerms.message}</p>
+        )}
+
         <button
           type="submit"
           disabled={loading}
@@ -87,6 +108,12 @@ export default function QuickSession() {
       </form>
 
       <p className="text-center text-gray-500 mt-6 text-sm">
+        Already booked as a walk-in?{" "}
+        <Link to="/resume-walk-in" className="text-[#A98B75] font-semibold hover:underline">
+          Resume walk-in
+        </Link>
+      </p>
+      <p className="text-center text-gray-500 mt-2 text-sm">
         Already have an account?{" "}
         <Link to="/login" className="text-[#A98B75] font-semibold hover:underline">Log in</Link>
       </p>

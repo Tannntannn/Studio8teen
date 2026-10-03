@@ -39,26 +39,42 @@ export function heatmapCellClass(status, opts) {
   return scheduleChipClass(status, opts);
 }
 
+function asCount(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Derive slot status from availability row */
 export function getSlotStatus(slot) {
   if (!slot || slot.is_enabled === false) return "closed";
-  if (slot.booked_count >= slot.capacity) return "full";
-  if (slot.booked_count > 0) return "partial";
+  const capacity = asCount(slot.capacity);
+  const booked = asCount(slot.booked_count);
+  if (capacity <= 0 || booked >= capacity) return "full";
+  if (booked > 0) return "partial";
   return "available";
 }
 
 export function isSlotSelectable(slot) {
-  return getSlotStatus(slot) === "available" || getSlotStatus(slot) === "partial";
+  const status = getSlotStatus(slot);
+  return status === "available" || status === "partial";
 }
 
 /** Derive day status from all slots on that date */
 export function getDayStatus(slotsForDate) {
   const enabled = (slotsForDate || []).filter((s) => s.is_enabled !== false);
   if (!enabled.length) return "closed";
-  const totalCap = enabled.reduce((sum, s) => sum + s.capacity, 0);
-  const booked = enabled.reduce((sum, s) => sum + s.booked_count, 0);
-  if (booked >= totalCap) return "full";
-  if (booked > 0) return "partial";
+
+  let bookable = 0;
+  let bookedAny = 0;
+  for (const slot of enabled) {
+    const status = getSlotStatus(slot);
+    if (status === "available" || status === "partial") bookable += 1;
+    if (status === "partial" || status === "full") bookedAny += 1;
+  }
+
+  // Nothing left to book → fully booked (red), even if totals were messy
+  if (bookable === 0) return "full";
+  if (bookedAny > 0) return "partial";
   return "available";
 }
 

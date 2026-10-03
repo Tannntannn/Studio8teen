@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { FaBars } from "react-icons/fa";
 import ClientSidebar from "../client/ClientSidebar";
+import NotificationBell from "./NotificationBell";
 import { useAuth } from "../../context/AuthContext";
 import { subscribeToNotifications } from "../../services/notifications";
 import {
@@ -18,6 +20,7 @@ const ClientLayout = ({ children }) => {
   const [showPushModal, setShowPushModal] = useState(false);
   const [pushDenied, setPushDenied] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const showToast = ({ title, body, url }) => {
     setPushToast({
@@ -122,9 +125,21 @@ const ClientLayout = ({ children }) => {
   };
 
   return (
-    <div className="min-h-screen app-shell flex">
-      <ClientSidebar />
-      <main className="flex-1 ml-20 p-6 md:p-8 overflow-y-auto min-h-screen relative">
+    <div className="min-h-screen app-shell flex min-w-0">
+      <ClientSidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <div className="flex-1 min-w-0 md:ml-20 min-h-screen flex flex-col relative">
+      <header className="flex items-center justify-between gap-3 px-4 md:justify-end md:px-8 pt-4">
+        <button
+          type="button"
+          onClick={() => setMenuOpen(true)}
+          className="md:hidden w-10 h-10 rounded-xl border border-[#E8E1DA] bg-white text-[#5B4636] flex items-center justify-center"
+          aria-label="Open menu"
+        >
+          <FaBars size={16} />
+        </button>
+        <NotificationBell />
+      </header>
+      <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-8 overflow-x-hidden overflow-y-auto">
         {showPushModal && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
             <div
@@ -210,6 +225,7 @@ const ClientLayout = ({ children }) => {
         )}
         <div className="page-transition">{children}</div>
       </main>
+      </div>
     </div>
   );
 };

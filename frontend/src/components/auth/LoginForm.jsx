@@ -108,6 +108,12 @@ function LoginForm() {
           Start a quick session
         </Link>
       </p>
+      <p className="text-center text-gray-500 mt-3 text-sm">
+        Already booked as a walk-in?{" "}
+        <Link to="/resume-walk-in" className="text-[#A98B75] font-semibold hover:underline">
+          Resume walk-in
+        </Link>
+      </p>
     </div>
   );
 }

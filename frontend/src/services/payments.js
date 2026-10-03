@@ -1,4 +1,17 @@
 import { supabase } from "../lib/supabase";
+import { FunctionsHttpError } from "@supabase/supabase-js";
+
+async function readFunctionError(error) {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const body = await error.context.json();
+      return body?.error || error.message;
+    } catch {
+      /* ignore */
+    }
+  }
+  return error?.message || "Request failed.";
+}
 
 export async function createPayment(payment) {
   const { data, error } = await supabase.from("payments").insert(payment).select().single();
@@ -9,6 +22,34 @@ export async function createPayment(payment) {
 export async function updatePayment(id, updates) {
   const { data, error } = await supabase.from("payments").update(updates).eq("id", id).select().single();
   if (error) throw error;
+  return data;
+}
+
+export async function startPaymongoCheckout({ bookingId, paymentType, purpose }) {
+  const { data, error } = await supabase.functions.invoke("create-paymongo-checkout", {
+    body: {
+      booking_id: bookingId,
+      payment_type: paymentType,
+      purpose: purpose || "booking",
+      origin: window.location.origin,
+    },
+  });
+  if (error) throw new Error(await readFunctionError(error));
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
+export async function syncPaymongoCheckout(bookingId, purpose) {
+  const { data, error } = await supabase.functions.invoke("create-paymongo-checkout", {
+    body: {
+      booking_id: bookingId,
+      purpose: purpose || "booking",
+      origin: window.location.origin,
+      sync: true,
+    },
+  });
+  if (error) throw new Error(await readFunctionError(error));
+  if (data?.error) throw new Error(data.error);
   return data;
 }
 

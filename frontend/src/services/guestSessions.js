@@ -35,6 +35,28 @@ export async function startGuestSession({ fullName }) {
   return data;
 }
 
+/**
+ * Resume an existing walk-in guest session using the contact email + phone from the booking.
+ */
+export async function resumeGuestSession({ email, phone }) {
+  const { data, error } = await supabase.functions.invoke("resume-guest-session", {
+    body: { email, phone },
+  });
+
+  if (error) throw new Error(await readFunctionError(error));
+  if (!data?.ok || !data.access_token || !data.refresh_token) {
+    throw new Error(data?.error || "Could not resume walk-in session.");
+  }
+
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+  });
+  if (sessionError) throw sessionError;
+
+  return data;
+}
+
 export function guestDaysRemaining(guestExpiresAt) {
   if (!guestExpiresAt) return null;
   const ms = new Date(guestExpiresAt).getTime() - Date.now();

@@ -1,6 +1,7 @@
 import { asStringArray } from "../services/moodBoardThemes";
 import { asCategoryValues } from "../services/moodBoardCategories";
-import { filterThemesByEvent } from "./themeMatching";
+import { filterThemesByEvent, themeMatchesEvent, normalizeEventType } from "./themeMatching";
+import { getEventMoodCatalog } from "./eventMoodCatalog";
 
 /**
  * Mood Board recommendation engine.
@@ -9,7 +10,10 @@ import { filterThemesByEvent } from "./themeMatching";
  * parent theme's metadata (event type, theme name/tags, mood, location, style,
  * color palette, and recommendations). It filters by event type, scores each
  * image against the client's optional preferences, ranks by relevance, selects
- * the top matches, and derives recommendations from the winning images (default 12 for collage).
+ * the top matches, and derives recommendations from the winning images (default 8 for collage).
+ *
+ * CRITICAL: photos + outfit/prop cutouts never cross event types
+ * (e.g. graduation togas must not appear on a wedding board).
  */
 
 export const SCORE_WEIGHTS = {
@@ -22,7 +26,65 @@ export const SCORE_WEIGHTS = {
   captionHint: 2,
 };
 
-export const DEFAULT_TOP_N = 12;
+export const DEFAULT_TOP_N = 8;
+
+/** Keywords that must NOT appear on cutouts/photos when building another event's board. */
+const FOREIGN_EVENT_MARKERS = {
+  Graduation: [/graduat/i, /\btoga\b/i, /mortarboard/i, /cap and gown/i, /class of/i, /\bstole\b/i, /commencement/i, /diploma folder/i],
+  Wedding: [/wedding/i, /bridal/i, /\bbride\b/i, /\bgroom\b/i, /\bveil\b/i, /engagement/i, /bouquet bridal/i],
+  Birthday: [/birthday/i, /\bcake\b/i, /balloon/i, /\bbday\b/i],
+  Debut: [/\bdebut\b/i, /debutante/i, /eighteen/i, /18th/i],
+  Christening: [/christen/i, /baptism/i],
+  Family: [/maternity/i, /newborn/i],
+  Corporate: [/headshot/i, /corporate/i, /office/i],
+};
+
+/** Captions that almost never belong on a photography mood board for sessions. */
+const GENERIC_NOISE = [
+  /christmas/i,
+  /reindeer/i,
+  /\bsanta\b/i,
+  /\bxmas\b/i,
+  /halloween/i,
+  /cosplay/i,
+  /anime/i,
+];
+
+function foreignMarkersForEvent(eventType) {
+  const canonical = normalizeEventType(eventType) || eventType;
+  // All other events' markers are "foreign"
+  return Object.entries(FOREIGN_EVENT_MARKERS)
+    .filter(([key]) => key !== canonical)
+    .flatMap(([, patterns]) => patterns);
+}
+
+function textBlob(...parts) {
+  return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+/** True if cutout/image text clearly belongs to a different event. */
+function looksLikeForeignEvent(eventType, ...textParts) {
+  const blob = textBlob(...textParts);
+  if (!blob) return false;
+  return foreignMarkersForEvent(eventType).some((re) => re.test(blob));
+}
+
+function cutoutAllowedForEvent(eventType, theme, img) {
+  if (!themeMatchesEvent(theme, eventType)) return false;
+  if (
+    looksLikeForeignEvent(
+      eventType,
+      img?.label,
+      img?.category,
+      img?.caption,
+      theme?.name,
+      ...(asStringArray(theme?.tags) || [])
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
 
 function norm(value) {
   return String(value || "").toLowerCase().trim();
@@ -192,19 +254,28 @@ function buildDescription(prefs, selectedCount) {
 }
 
 /**
- * Pick exactly `topN` images: best matches for the event first, then pad from
- * the rest of the studio library so the collage always reaches the target count.
- * Prefers event-tagged images and diversifies across themes (max 3 per theme first pass).
+ * Pick exactly `topN` images from the SAME event type only.
+ * Never pads with other events (wedding boards must not get graduation photos).
  */
 function selectExactTop(themes, prefs, topN) {
   const primary = buildCandidateImages(themes, prefs.eventType)
+    .filter((c) => themeMatchesEvent(c.theme, prefs.eventType))
+    .filter(
+      (c) =>
+        !looksLikeForeignEvent(
+          prefs.eventType,
+          c.caption,
+          c.themeName,
+          ...(asStringArray(c.theme?.tags) || [])
+        )
+    )
+    .filter((c) => !GENERIC_NOISE.some((re) => re.test(textBlob(c.caption, c.themeName))))
     .map((candidate) => scoreCandidate(candidate, prefs))
     .sort((a, b) => b.score - a.score || a.order - b.order);
 
   const selected = [];
   const seen = new Set();
   const themeCounts = new Map();
-  const library = buildAllCandidateImages(themes);
   const maxPerTheme = Math.max(2, Math.ceil(topN / 3));
 
   const take = (list, { respectThemeCap = true } = {}) => {
@@ -221,90 +292,166 @@ function selectExactTop(themes, prefs, topN) {
     }
   };
 
-  // First: highest-scoring event matches with theme diversity
   take(primary, { respectThemeCap: true });
-  // Second: more event matches without cap if still short
   if (selected.length < topN) take(primary, { respectThemeCap: false });
 
-  if (selected.length < topN) {
-    const selectedKeys = new Set(selected.map((c) => String(c.url || c.id)));
-    const fillers = library
-      .filter((c) => !selectedKeys.has(String(c.url || c.id)))
-      .map((candidate) => {
-        const scored = scoreCandidate(candidate, prefs);
-        // Fillers outside the event lose the event bonus and get a penalty
-        const offEvent = !textMatches(candidate.theme?.event_type, prefs.eventType);
-        return {
-          ...scored,
-          score: Math.max(
-            0,
-            scored.score - SCORE_WEIGHTS.eventType - (offEvent ? 6 : 0)
-          ),
-          matched: scored.matched.filter((m) => m !== "Event type"),
-        };
-      })
-      .sort((a, b) => b.score - a.score || a.order - b.order);
-    take(fillers, { respectThemeCap: true });
-    if (selected.length < topN) take(fillers, { respectThemeCap: false });
-  }
-
-  return { selected, primaryCount: primary.length, totalLibrary: library.length };
+  return {
+    selected,
+    primaryCount: primary.length,
+    totalLibrary: primary.length,
+  };
 }
 
 /**
  * Generate a personalized mood board.
- * Always returns exactly `topN` images (default 12), or an error if the studio
- * library does not have enough inspiration photos yet.
+ * With `allowStockFallback`, short libraries still succeed — stock enrichment
+ * fills outfits, props, backgrounds, and missing collage photos.
  * @returns {{ moodBoard, scoreSummary } | { error }}
  */
-export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) {
+export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N, allowStockFallback = false } = {}) {
   if (!prefs?.eventType) {
     return { error: "Please select your event type first." };
   }
 
+  const catalog = getEventMoodCatalog(prefs.eventType);
   const { selected: top, primaryCount, totalLibrary } = selectExactTop(themes, prefs, topN);
 
-  if (!primaryCount) {
+  if (!primaryCount && !allowStockFallback) {
     return {
       error: `No inspiration images are available for ${prefs.eventType} yet. Please try another event type or contact the studio.`,
     };
   }
 
-  if (top.length < topN) {
+  if (top.length < topN && !allowStockFallback) {
     return {
-      error: `A mood board needs ${topN} photos, but only ${totalLibrary} inspiration image${totalLibrary === 1 ? " is" : "s are"} in the studio library. Ask the studio to upload more Mood Board Themes.`,
+      error: `A ${prefs.eventType} mood board needs ${topN} photos from ${prefs.eventType} themes, but only ${primaryCount} matching image${primaryCount === 1 ? " is" : "s are"} available. Ask the studio to upload more ${prefs.eventType} inspiration photos (other event types are not mixed in).`,
     };
   }
 
-  const selectedThemes = top.map((c) => c.theme);
+  // Only same-event themes — never pull graduation cutouts into a wedding board
+  const eventThemes = filterThemesByEvent(themes, prefs.eventType);
+  const selectedThemes = top
+    .map((c) => c.theme)
+    .filter((t) => t && themeMatchesEvent(t, prefs.eventType));
+
+  // Main theme = most frequent among winning photos (must be event-matched)
+  const mainThemeId = mostCommon(top.map((c) => c.themeId));
+  const mainTheme =
+    selectedThemes.find((t) => t?.id === mainThemeId) ||
+    selectedThemes[0] ||
+    eventThemes[0] ||
+    null;
+  const secondaryThemes = selectedThemes.filter((t) => t && t.id !== mainTheme?.id);
 
   const colorPalette = rankByFrequency(
-    selectedThemes.map((t) => t.color_palette),
-    6,
+    [
+      ...(mainTheme ? [mainTheme.color_palette] : []),
+      ...secondaryThemes.map((t) => t.color_palette),
+    ],
+    5,
     (c) => String(c).toUpperCase()
   );
-  const outfitSuggestions = rankByFrequency(selectedThemes.map((t) => t.outfit_suggestions), 8);
-  const propSuggestions = rankByFrequency(selectedThemes.map((t) => t.prop_suggestions), 8);
-  const tags = rankByFrequency(selectedThemes.map((t) => t.tags), 10);
+  let outfitSuggestions = rankByFrequency(
+    [
+      ...(mainTheme ? [mainTheme.outfit_suggestions] : []),
+      ...secondaryThemes.map((t) => t.outfit_suggestions),
+    ],
+    8
+  );
+  let propSuggestions = rankByFrequency(
+    [
+      ...(mainTheme ? [mainTheme.prop_suggestions] : []),
+      ...secondaryThemes.map((t) => t.prop_suggestions),
+    ],
+    8
+  );
+  if (!outfitSuggestions.length) outfitSuggestions = catalog.outfits.slice(0, 4);
+  if (!propSuggestions.length) propSuggestions = catalog.props.slice(0, 4);
+  const tags = rankByFrequency(
+    [
+      ...(mainTheme ? [mainTheme.tags] : []),
+      ...secondaryThemes.map((t) => t.tags),
+    ],
+    10
+  );
 
-  const lightingStyle = mostCommon(selectedThemes.map((t) => t.lighting_style));
-  const editingStyle = mostCommon(selectedThemes.map((t) => t.editing_style));
+  // Outfits/props: main theme first, then other SAME-EVENT themes only
+  const outfitImages = [];
+  const propImages = [];
+  const seenCut = new Set();
+  const themeOrder = [mainTheme, ...secondaryThemes, ...eventThemes].filter(Boolean);
+  const uniqueThemes = [];
+  const seenTheme = new Set();
+  for (const theme of themeOrder) {
+    if (!theme?.id || seenTheme.has(theme.id)) continue;
+    if (!themeMatchesEvent(theme, prefs.eventType)) continue;
+    seenTheme.add(theme.id);
+    uniqueThemes.push(theme);
+  }
+
+  for (const theme of uniqueThemes) {
+    for (const img of theme.outfit_images || []) {
+      if (!img?.url || seenCut.has(img.url)) continue;
+      if (!cutoutAllowedForEvent(prefs.eventType, theme, img)) continue;
+      seenCut.add(img.url);
+      outfitImages.push({
+        id: img.id || `outfit-${outfitImages.length}`,
+        url: img.url,
+        public_id: img.public_id,
+        label: img.label || outfitSuggestions[outfitImages.length] || "Outfit",
+        category: img.category || "Other",
+        themeName: theme.name,
+      });
+    }
+    for (const img of theme.prop_images || []) {
+      if (!img?.url || seenCut.has(img.url)) continue;
+      if (!cutoutAllowedForEvent(prefs.eventType, theme, img)) continue;
+      seenCut.add(img.url);
+      propImages.push({
+        id: img.id || `prop-${propImages.length}`,
+        url: img.url,
+        public_id: img.public_id,
+        label: img.label || propSuggestions[propImages.length] || "Prop",
+        category: img.category || "Other",
+        themeName: theme.name,
+      });
+    }
+  }
+
+  const lightingStyle =
+    mainTheme?.lighting_style || mostCommon(selectedThemes.map((t) => t.lighting_style));
+  const editingStyle =
+    mainTheme?.editing_style || mostCommon(selectedThemes.map((t) => t.editing_style));
   const photographyStyle = rankByFrequency(
-    selectedThemes.map((t) => asCategoryValues(t.photography_style)),
+    [
+      ...(mainTheme ? [asCategoryValues(mainTheme.photography_style)] : []),
+      ...secondaryThemes.map((t) => asCategoryValues(t.photography_style)),
+    ],
     4
   );
-  const mood = rankByFrequency(selectedThemes.map((t) => asCategoryValues(t.mood)), 4);
-  const locationType = mostCommon(selectedThemes.map((t) => t.location_type));
+  const mood = rankByFrequency(
+    [
+      ...(mainTheme ? [asCategoryValues(mainTheme.mood)] : []),
+      ...secondaryThemes.map((t) => asCategoryValues(t.mood)),
+    ],
+    4
+  );
+  const locationType =
+    mainTheme?.location_type || mostCommon(selectedThemes.map((t) => t.location_type));
 
   const sourceThemeNames = [...new Set(top.map((c) => c.themeName).filter(Boolean))];
+  const boardTitle = mainTheme?.name
+    ? `${mainTheme.name}`
+    : `Your ${prefs.eventType} Mood Board`;
 
   return {
     moodBoard: {
       id: `mb-${prefs.eventType.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
-      name: `Your ${prefs.eventType} Mood Board`,
+      name: boardTitle,
       description: buildDescription(prefs, top.length),
       event_type: prefs.eventType,
       is_personalized: true,
+      main_theme_name: mainTheme?.name || sourceThemeNames[0] || "",
       source_theme_names: sourceThemeNames,
       inspiration_images: top.map((c) => ({
         id: c.id,
@@ -317,6 +464,8 @@ export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) 
       color_palette: colorPalette,
       outfit_suggestions: outfitSuggestions,
       prop_suggestions: propSuggestions,
+      outfit_images: outfitImages.slice(0, 4),
+      prop_images: propImages.slice(0, 4),
       tags,
       mood,
       photography_style: photographyStyle,
@@ -329,6 +478,7 @@ export function generateMoodBoard(themes, prefs, { topN = DEFAULT_TOP_N } = {}) 
       totalCandidates: Math.max(primaryCount, totalLibrary),
       selectedCount: top.length,
       requiredCount: topN,
+      mainTheme: mainTheme?.name || null,
       weights: SCORE_WEIGHTS,
       items: top.map((c) => ({
         id: c.id,

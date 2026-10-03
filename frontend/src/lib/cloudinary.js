@@ -13,6 +13,16 @@ export function getGalleryUrl(url, width = 800) {
   return url.replace("/upload/", `/upload/w_${width},f_auto,q_auto/`);
 }
 
+/**
+ * Cutout-style URL for outfits/props (Cloudinary AI background removal when available).
+ * Falls back to a padded contain crop if the add-on is not enabled.
+ */
+export function getCutoutUrl(url, width = 400) {
+  if (!url || !url.includes("cloudinary.com")) return url;
+  const transform = `e_background_removal,w_${width},c_pad,b_transparent,f_png,q_auto`;
+  return url.replace("/upload/", `/upload/${transform}/`);
+}
+
 /** Vision analysis URL — smaller = faster model response. */
 export function getVisionAnalysisUrl(url, width = 448) {
   if (!url || !url.includes("cloudinary.com")) return url;
@@ -21,7 +31,7 @@ export function getVisionAnalysisUrl(url, width = 448) {
   return url.replace("/upload/", `/upload/${transform}/`);
 }
 
-export async function uploadToCloudinary(file, folder = "studiobook") {
+export async function uploadToCloudinary(file, folder = "studiobook", { backgroundRemoval = false } = {}) {
   if (!isCloudinaryConfigured) {
     throw new Error("Cloudinary is not configured. Set VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET.");
   }
@@ -30,6 +40,10 @@ export async function uploadToCloudinary(file, folder = "studiobook") {
   formData.append("file", file);
   formData.append("upload_preset", uploadPreset);
   formData.append("folder", folder);
+  // Unsigned presets cannot use `eager`. BG removal is applied on display via getCutoutUrl().
+  if (backgroundRemoval) {
+    formData.append("tags", "cutout,bg-removal");
+  }
 
   const res = await fetch(
     `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
@@ -45,6 +59,7 @@ export async function uploadToCloudinary(file, folder = "studiobook") {
   return {
     url: data.secure_url,
     publicId: data.public_id,
+    rawUrl: data.secure_url,
   };
 }
 
@@ -57,5 +72,7 @@ export const CLOUDINARY_FOLDERS = {
   moodBoard: (bookingId) => `studiobook/mood-boards/${bookingId}`,
   poses: "studiobook/poses",
   moodBoardThemes: "studiobook/mood-board-themes",
+  moodBoardOutfits: "studiobook/mood-board-outfits",
+  moodBoardProps: "studiobook/mood-board-props",
   packages: "studiobook/packages",
 };

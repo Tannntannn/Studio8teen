@@ -92,9 +92,12 @@ Return JSON:
       "location_type": string (MUST be exactly one of: ${formatCategoryList(opts.location_type)} — or ""),
       "lighting_style": string,
       "editing_style": string,
-      "color_palette": string[] (4-6 hex from THIS image),
-      "outfit_suggestions": string[],
-      "prop_suggestions": string[],
+      "color_palette": string[] (4-6 hex from THIS image — real colors only),
+      "color_names": string[] (human color names matching palette, e.g. "Burgundy", "Sage", "Ivory" — NOT hex codes),
+      "outfit_suggestions": string[] (specific garments you SEE or would fit this look),
+      "outfit_categories": string[] (each one of: Dress, Suit, Casual, Formal, Traditional, Accessories, Footwear, Other),
+      "prop_suggestions": string[] (specific props/objects),
+      "prop_categories": string[] (each one of: Floral, Furniture, Lighting, Decor, Backdrop, Tableware, Signage, Other),
       "tags": string[]
     }
   ],
@@ -109,8 +112,11 @@ Return JSON:
     "editing_style": string,
     "description": string (1-2 sentences for clients),
     "color_palette": string[],
+    "color_names": string[],
     "outfit_suggestions": string[],
+    "outfit_categories": string[],
     "prop_suggestions": string[],
+    "prop_categories": string[],
     "tags": string[]
   }
 }
@@ -285,8 +291,11 @@ type Suggestions = {
   editing_style: string;
   description: string;
   color_palette: string[];
+  color_names: string[];
   outfit_suggestions: string[];
+  outfit_categories: string[];
   prop_suggestions: string[];
+  prop_categories: string[];
   tags: string[];
 };
 
@@ -351,8 +360,17 @@ function buildFromPerImage(
       editing_style: asText(merged.editing_style) || asText(perImage[0]?.editing_style),
       description: asText(merged.description),
       color_palette: mergeColors(perImage).length ? mergeColors(perImage) : asArray(merged.color_palette).map((c) => c.toUpperCase()).filter((c) => /^#([0-9A-F]{6}|[0-9A-F]{3})$/.test(c)),
+      color_names: mergeUnique(perImage, "color_names", 6).length
+        ? mergeUnique(perImage, "color_names", 6)
+        : asArray(merged.color_names),
       outfit_suggestions: mergeUnique(perImage, "outfit_suggestions", 6).length ? mergeUnique(perImage, "outfit_suggestions", 6) : asArray(merged.outfit_suggestions),
+      outfit_categories: mergeUnique(perImage, "outfit_categories", 6).length
+        ? mergeUnique(perImage, "outfit_categories", 6)
+        : asArray(merged.outfit_categories),
       prop_suggestions: mergeUnique(perImage, "prop_suggestions", 6).length ? mergeUnique(perImage, "prop_suggestions", 6) : asArray(merged.prop_suggestions),
+      prop_categories: mergeUnique(perImage, "prop_categories", 6).length
+        ? mergeUnique(perImage, "prop_categories", 6)
+        : asArray(merged.prop_categories),
       tags: [...tagSet].slice(0, 10),
     },
     visual_cues: allCues.slice(0, 15),
@@ -469,7 +487,8 @@ async function callGeminiModel(
 
 function geminiModels(): string[] {
   const preferred = Deno.env.get("GEMINI_MODEL");
-  const fallbacks = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+  // Prefer current Flash IDs; keep older names as last resorts
+  const fallbacks = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash"];
   const list = preferred ? [preferred, ...fallbacks] : fallbacks;
   return [...new Set(list)];
 }
@@ -524,54 +543,82 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
   if (!apiKey) return null;
 
   const envModel = Deno.env.get("OPENROUTER_MODEL");
-  const models = envModel
-    ? [
-        envModel,
-        "nvidia/nemotron-nano-12b-v2-vl:free",
-        "google/gemma-4-31b-it:free",
-        "google/gemma-4-26b-a4b-it:free",
-      ]
-    : [
-        "nvidia/nemotron-nano-12b-v2-vl:free",
-        "google/gemma-4-31b-it:free",
-        "google/gemma-4-26b-a4b-it:free",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      ];
+  // openrouter/free auto-picks a free model that supports vision when images are sent.
+  // Specific :free VL models as fallbacks when the router is busy.
+  const models = [
+    ...(envModel ? [envModel] : []),
+    "openrouter/free",
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+  ];
   let lastError = "";
+  let sawRateLimit = false;
+
+  const siteUrl = Deno.env.get("APP_URL") || "https://www.studio8teen.org";
 
   for (const model of [...new Set(models)]) {
     const content: Array<Record<string, unknown>> = [
-      { type: "text", text: buildInstruction(urls.length, categoryOptions) },
+      { type: "text", text: buildInstruction(Math.min(urls.length, 2), categoryOptions) },
     ];
-    for (const url of urls) {
+    for (const url of urls.slice(0, 2)) {
       content.push({ type: "image_url", image_url: { url } });
     }
 
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const body: Record<string, unknown> = {
+        model,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content },
+        ],
+        temperature: 0,
+        max_tokens: 1600,
+      };
+      // Structured JSON helps when supported; some free models reject it — retry without below
+      body.response_format = { type: "json_object" };
+
+      let res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
-          "HTTP-Referer": "https://studiobook.app",
-          "X-Title": "StudioBook",
+          "HTTP-Referer": siteUrl,
+          "X-Title": "StudioBook Mood Board",
         },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0,
-          max_tokens: 900,
-        }),
-        signal: AbortSignal.timeout(18000),
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(28000),
       });
 
-      const bodyText = await res.text();
+      let bodyText = await res.text();
+
+      // Retry without response_format if model rejects it
+      if (
+        !res.ok &&
+        (bodyText.includes("response_format") ||
+          bodyText.includes("json_object") ||
+          res.status === 400)
+      ) {
+        delete body.response_format;
+        res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+            "HTTP-Referer": siteUrl,
+            "X-Title": "StudioBook Mood Board",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(28000),
+        });
+        bodyText = await res.text();
+      }
+
       if (!res.ok) {
         lastError = `HTTP ${res.status}: ${bodyText.slice(0, 300)}`;
+        if (res.status === 429 || bodyText.includes("rate-limited") || bodyText.includes("Rate limit")) {
+          sawRateLimit = true;
+        }
         console.warn(`OpenRouter ${model} failed:`, lastError);
         continue;
       }
@@ -597,7 +644,7 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
         confidence: result.confidence,
         per_image: perImage,
         source: "openrouter",
-        model,
+        model: data?.model || model,
       };
     } catch (e) {
       lastError = (e as Error).message;
@@ -605,7 +652,9 @@ async function analyzeWithOpenRouter(urls: string[], categoryOptions: CategoryOp
     }
   }
 
-  throw new Error(lastError || "openrouter_request_failed");
+  const err = new Error(lastError || "openrouter_request_failed") as Error & { rateLimited?: boolean };
+  err.rateLimited = sawRateLimit;
+  throw err;
 }
 
 async function analyzeWithOpenAI(urls: string[], categoryOptions: CategoryOptions) {
@@ -689,14 +738,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // When OpenRouter is configured, use it only (avoid slow Gemini quota retries).
+    let lastDetail = "";
+    let lastErrorCode = "failed";
+
+    // Try OpenRouter first, then Gemini, then OpenAI — do not stop after one provider fails
     if (hasOpenRouter) {
       try {
         const result = await analyzeWithOpenRouter(urls, categoryOptions);
         if (result) return jsonResponse({ ok: true, ...result });
       } catch (e) {
-        const detail = (e as Error).message.slice(0, 400);
-        return jsonResponse({ ok: false, error: "failed", detail });
+        const err = e as Error & { rateLimited?: boolean };
+        lastDetail = err.message.slice(0, 400);
+        lastErrorCode = err.rateLimited ? "rate_limited" : "failed";
+        console.error("OpenRouter failed, trying next provider:", lastDetail);
       }
     }
 
@@ -705,15 +759,36 @@ Deno.serve(async (req) => {
         const result = await analyzeWithGemini(urls, categoryOptions);
         if (result) return jsonResponse({ ok: true, ...result });
       } catch (e) {
-        if (!hasOpenAI) throw e;
-        console.error("Gemini failed:", e);
+        const msg = (e as Error).message;
+        if (msg === "quota_exceeded") {
+          lastErrorCode = "quota_exceeded";
+          lastDetail = "Gemini rate limit reached. Wait a moment and try Re-analyze again.";
+        } else {
+          lastDetail = msg.slice(0, 400);
+          lastErrorCode = "failed";
+        }
+        console.error("Gemini failed:", msg);
+        if (!hasOpenAI) {
+          return jsonResponse({ ok: false, error: lastErrorCode, detail: lastDetail });
+        }
       }
     }
 
-    const openaiResult = await analyzeWithOpenAI(urls, categoryOptions);
-    if (openaiResult) return jsonResponse({ ok: true, ...openaiResult });
+    if (hasOpenAI) {
+      try {
+        const openaiResult = await analyzeWithOpenAI(urls, categoryOptions);
+        if (openaiResult) return jsonResponse({ ok: true, ...openaiResult });
+      } catch (e) {
+        lastDetail = (e as Error).message.slice(0, 400);
+        lastErrorCode = "failed";
+      }
+    }
 
-    return jsonResponse({ ok: false, error: "vision_not_configured" });
+    return jsonResponse({
+      ok: false,
+      error: lastErrorCode,
+      detail: lastDetail || "All vision providers failed. Try Re-analyze in a minute.",
+    });
   } catch (e) {
     const msg = (e as Error).message;
     if (msg === "quota_exceeded") {

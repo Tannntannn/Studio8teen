@@ -181,7 +181,9 @@ export async function isSlotBookable(date, timeSlot) {
   const rows = await getAvailability(date, date);
   const slot = rows.find((r) => r.time_slot === timeSlot);
   if (!slot) return false;
-  return slot.is_enabled !== false && slot.booked_count < slot.capacity;
+  const capacity = Number(slot.capacity) || 0;
+  const booked = Number(slot.booked_count) || 0;
+  return slot.is_enabled !== false && capacity > 0 && booked < capacity;
 }
 
 export function subscribeAvailability(onChange) {

@@ -1,22 +1,9 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 import { getVisionAnalysisUrl } from "../lib/cloudinary";
-import { buildSuggestionsFromVision, buildFastVisionInstruction } from "../lib/visionPostProcess";
 import { clampSuggestionsToCategories, asCategoryValues } from "./moodBoardCategories";
 
-// OpenRouter key must stay server-side (Supabase edge). Never use VITE_OPENROUTER_API_KEY.
-const OPENROUTER_KEY = null;
-
-/** Fastest free models first — fewer fallbacks = less waiting when busy. */
-const FAST_VISION_MODELS = [
-  "nvidia/nemotron-nano-12b-v2-vl:free",
-  "google/gemma-4-26b-a4b-it:free",
-  "google/gemma-4-31b-it:free",
-];
-
-const ANALYSIS_DEADLINE_MS = 22_000;
-const PER_REQUEST_TIMEOUT_MS = 14_000;
-const RATE_LIMIT_RETRY_MS = 2_500;
+const ANALYSIS_DEADLINE_MS = 55_000;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 const visionCache = new Map();
@@ -24,10 +11,6 @@ const visionCache = new Map();
 const asArray = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
 const asText = (v) => (typeof v === "string" ? v.trim() : "");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const VISION_PROMPT =
-  "You are a photography classification expert. Describe ONLY what is visible. " +
-  "Occasion must be proven by clothing/props/setting — never mood alone. Return ONLY valid JSON.";
 
 function cacheKey(urls) {
   return urls.map((u) => u.split("/").slice(-2).join("/")).join("|");
@@ -67,43 +50,22 @@ function normalizeSuggestions(suggestions) {
   };
 }
 
-function parseModelJson(raw) {
-  const trimmed = raw.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return JSON.parse(fenced ? fenced[1].trim() : trimmed);
-}
-
-function mergeParsedToSuggestions(parsed, categoryOptions) {
-  return normalizeSuggestions(
-    clampSuggestionsToCategories(buildSuggestionsFromVision(parsed, categoryOptions), categoryOptions)
-  );
-}
-
-function isRateLimited(status, body) {
-  return status === 429 || body.includes("rate-limited") || body.includes("RESOURCE_EXHAUSTED");
-}
-
-function isUnavailableModel(status, body) {
-  return (
-    status === 404 ||
-    body.includes("No endpoints found") ||
-    body.includes("not found") ||
-    body.includes("does not exist")
-  );
-}
-
-function shortModelName(model) {
-  return model.split("/")[1]?.split(":")[0] || model;
-}
-
 async function readInvokePayload(data, error) {
   if (data && typeof data === "object") return data;
   if (error instanceof FunctionsHttpError) {
     try {
       return await error.context.json();
     } catch {
-      /* ignore */
+      try {
+        const text = await error.context.text();
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return { ok: false, error: "failed", detail: error.message };
+      }
     }
+  }
+  if (error) {
+    return { ok: false, error: "failed", detail: error.message || String(error) };
   }
   return null;
 }
@@ -112,158 +74,56 @@ function parseInvokeResponse(payload) {
   if (!payload) return null;
   if (payload.suggestions && payload.ok !== false) {
     const suggestions = normalizeSuggestions(payload.suggestions);
-    if (suggestions) return { suggestions, meta: { source: payload.source, model: payload.model } };
+    if (suggestions) {
+      return {
+        suggestions,
+        meta: { source: payload.source, model: payload.model },
+      };
+    }
   }
   if (payload.ok === false || payload.error) {
-    return { suggestions: null, meta: { error: payload.error || "failed", detail: asText(payload.detail) } };
+    const code = payload.error || "failed";
+    return {
+      suggestions: null,
+      meta: {
+        error:
+          code === "quota_exceeded" || code === "rate_limited" ? "rate_limited" : code,
+        detail: asText(payload.detail) || asText(payload.error) || "AI analysis failed",
+      },
+    };
   }
   return null;
 }
 
-function buildModelList() {
-  const customModel = import.meta.env.VITE_OPENROUTER_MODEL;
-  const models = customModel ? [customModel, ...FAST_VISION_MODELS] : FAST_VISION_MODELS;
-  return [...new Set(models)];
-}
-
-async function callOpenRouter(model, content, timeoutMs, categoryOptions) {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENROUTER_KEY}`,
-      "HTTP-Referer": window.location.origin,
-      "X-Title": "StudioBook",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: VISION_PROMPT },
-        { role: "user", content },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0,
-      max_tokens: 900,
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  const bodyText = await res.text();
-  if (!res.ok) {
-    return {
-      ok: false,
-      rateLimited: isRateLimited(res.status, bodyText),
-      unavailable: isUnavailableModel(res.status, bodyText),
-      error: `HTTP ${res.status}`,
-      body: bodyText,
-    };
-  }
-
-  const data = JSON.parse(bodyText);
-  const raw = data?.choices?.[0]?.message?.content;
-  if (!raw) return { ok: false, rateLimited: false, error: "empty response", body: "" };
-
-  const parsed = parseModelJson(raw);
-  const suggestions = mergeParsedToSuggestions(parsed, categoryOptions);
-  if (!suggestions) return { ok: false, rateLimited: false, error: "invalid json", body: "" };
-
-  return { ok: true, suggestions, model };
-}
-
-async function analyzeWithOpenRouterDirect(urls, { onStatus, categoryOptions } = {}) {
-  if (!OPENROUTER_KEY) return null;
-
-  const content = [{ type: "text", text: buildFastVisionInstruction(urls.length, categoryOptions) }];
-  for (const url of urls) {
-    content.push({ type: "image_url", image_url: { url } });
-  }
-
-  const models = buildModelList();
-  const deadline = Date.now() + ANALYSIS_DEADLINE_MS;
-  const timeLeft = () => deadline - Date.now();
-  let lastError = "Analysis timed out.";
-  let sawRateLimit = false;
-  let rateLimitRetried = false;
-
-  for (const model of models) {
-    if (timeLeft() < 1500) break;
-
-    onStatus?.(`AI analyzing (${shortModelName(model)})...`);
-    const timeoutMs = Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft());
-
-    try {
-      const result = await callOpenRouter(model, content, timeoutMs, categoryOptions);
-      if (result.ok) {
-        return { suggestions: result.suggestions, meta: { source: "openrouter-direct", model: result.model } };
-      }
-
-      if (result.unavailable) continue;
-
-      lastError = result.body?.slice(0, 180) || result.error;
-
-      if (result.rateLimited) {
-        sawRateLimit = true;
-        if (!rateLimitRetried && timeLeft() > RATE_LIMIT_RETRY_MS + 2000) {
-          rateLimitRetried = true;
-          onStatus?.(`Models busy — quick retry...`);
-          await sleep(RATE_LIMIT_RETRY_MS);
-          const retry = await callOpenRouter(model, content, Math.min(PER_REQUEST_TIMEOUT_MS, timeLeft()), categoryOptions);
-          if (retry.ok) {
-            return { suggestions: retry.suggestions, meta: { source: "openrouter-direct", model: retry.model } };
-          }
-          lastError = retry.body?.slice(0, 180) || retry.error;
-        }
-        break;
-      }
-    } catch (err) {
-      lastError = err.name === "TimeoutError" || err.name === "AbortError" ? "Request timed out." : err.message;
-    }
-  }
-
-  if (sawRateLimit) {
-    return {
-      suggestions: null,
-      meta: {
-        error: "rate_limited",
-        detail: "AI models are busy — quick local suggestions were applied. Try Re-analyze in a minute.",
-      },
-    };
-  }
-
-  return {
-    suggestions: null,
-    meta: { error: "vision_failed", detail: lastError },
-  };
-}
-
-async function analyzeViaEdgeFunction(urls, categoryOptions) {
+async function analyzeViaEdgeFunction(urls, categoryOptions, onStatus) {
+  onStatus?.("AI analyzing images...");
   const { data, error } = await supabase.functions.invoke("analyze-image", {
     body: { imageUrls: urls, categoryOptions },
   });
   const payload = await readInvokePayload(data, error);
-  return parseInvokeResponse(payload);
+  const parsed = parseInvokeResponse(payload);
+  if (parsed) return parsed;
+  return {
+    suggestions: null,
+    meta: {
+      error: "failed",
+      detail: error?.message || "No response from AI service",
+    },
+  };
 }
 
-function raceVisionProviders(urls, { onStatus, categoryOptions } = {}) {
-  const attempts = [];
-
-  attempts.push(
-    analyzeViaEdgeFunction(urls, categoryOptions).then((result) => {
-      if (result?.suggestions) return result;
-      throw result;
-    })
-  );
-
-  if (!attempts.length) return Promise.resolve(null);
-
-  return Promise.any(attempts).catch(() => null);
-}
-
-export async function analyzeImagesWithVision(imageUrls, { maxImages = 5, onStatus, categoryOptions } = {}) {
+/**
+ * Call the analyze-image edge function (OpenRouter → Gemini → OpenAI fallbacks live there).
+ * Never puts API keys in the browser.
+ */
+export async function analyzeImagesWithVision(
+  imageUrls,
+  { maxImages = 2, onStatus, categoryOptions } = {}
+) {
   const urls = (imageUrls || [])
     .filter(Boolean)
     .slice(-maxImages)
-    .map((u) => getVisionAnalysisUrl(u));
+    .map((u) => getVisionAnalysisUrl(u, 448));
 
   if (!urls.length) return null;
 
@@ -275,23 +135,30 @@ export async function analyzeImagesWithVision(imageUrls, { maxImages = 5, onStat
 
   onStatus?.("Enhancing with AI...");
 
+  const analysisPromise = analyzeViaEdgeFunction(urls, categoryOptions, onStatus);
   const raced = await Promise.race([
-    raceVisionProviders(urls, { onStatus, categoryOptions }),
-    sleep(ANALYSIS_DEADLINE_MS).then(() => null),
+    analysisPromise,
+    sleep(ANALYSIS_DEADLINE_MS).then(() => ({
+      suggestions: null,
+      meta: {
+        error: "vision_failed",
+        detail: "AI timed out — local color/mood suggestions are still shown. Try Re-analyze.",
+      },
+    })),
   ]);
 
+  // If we timed out, still wait briefly for late success? Prefer timed result.
   if (raced?.suggestions) {
     writeCache(urls, raced);
+    onStatus?.("AI analysis completed.");
     return raced;
   }
 
-  if (raced?.meta) return raced;
-
-  return {
+  return raced || {
     suggestions: null,
     meta: {
       error: "vision_failed",
-      detail: "AI timed out — local color/mood suggestions are still shown.",
+      detail: "AI unavailable — local suggestions were applied. Try Re-analyze.",
     },
   };
 }

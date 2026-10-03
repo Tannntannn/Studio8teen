@@ -133,17 +133,17 @@ export default function AdminReports() {
       <div>
         <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
           <div>
-            <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Insight Reports</h1>
+            <h1 className="heading-serif text-3xl sm:text-4xl font-bold text-[#5B4636]">Insight Reports</h1>
             <p className="text-gray-500 mt-1 text-sm">Booking, revenue, and channel performance.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div>
               <label className="block text-[10px] uppercase text-gray-400 mb-1">From</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm" />
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm max-w-full" />
             </div>
             <div>
               <label className="block text-[10px] uppercase text-gray-400 mb-1">To</label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm" />
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm max-w-full" />
             </div>
             <button type="button" onClick={exportCsv} className="px-3 py-2 rounded-lg bg-[#5B4636] text-white text-sm">
               Export CSV
@@ -154,7 +154,7 @@ export default function AdminReports() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="bg-white rounded-xl border border-[#E8E1DA] p-4">
             <p className="text-sm text-gray-500">Verified revenue</p>
-            <p className="text-2xl font-bold text-[#5B4636]">₱{Number(revenue?.total_verified ?? revenue?.verified_total ?? 0).toLocaleString()}</p>
+            <p className="text-xl sm:text-2xl font-bold text-[#5B4636] break-words">₱{Number(revenue?.total_verified ?? revenue?.verified_total ?? 0).toLocaleString()}</p>
           </div>
           <div className="bg-white rounded-xl border border-[#E8E1DA] p-4">
             <p className="text-sm text-gray-500">Bookings (filter)</p>
@@ -175,32 +175,32 @@ export default function AdminReports() {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-4 sm:p-6 min-w-0 overflow-hidden">
             <h3 className="font-semibold mb-4 text-[#5B4636]">Revenue trend (by event month)</h3>
             <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={revenueTrend}>
+              <LineChart data={revenueTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#E8E1DA" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis width={36} tick={{ fontSize: 10 }} />
                 <Tooltip />
                 <Line type="monotone" dataKey="total" stroke="#A98B75" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-4 sm:p-6 min-w-0 overflow-hidden">
             <h3 className="font-semibold mb-4 text-[#5B4636]">Popular packages</h3>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={packageData}>
-                <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                <YAxis />
+              <BarChart data={packageData} margin={{ top: 8, right: 8, left: 0, bottom: 24 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-28} textAnchor="end" height={48} />
+                <YAxis width={28} tick={{ fontSize: 10 }} />
                 <Tooltip />
                 <Bar dataKey="value" fill="#A98B75" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-4 sm:p-6 min-w-0 overflow-hidden">
             <h3 className="font-semibold mb-4 text-[#5B4636]">Bookings by status</h3>
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
@@ -214,7 +214,7 @@ export default function AdminReports() {
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-4 sm:p-6 min-w-0 overflow-hidden">
             <h3 className="font-semibold mb-4 text-[#5B4636]">Scheduled vs walk-in</h3>
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>

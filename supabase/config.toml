@@ -11,3 +11,18 @@ additional_redirect_urls = ["http://localhost:5173/**"]
 
 [functions.forgot-password]
 verify_jwt = false
+
+[functions.create-guest-session]
+verify_jwt = false
+
+[functions.resume-guest-session]
+verify_jwt = false
+
+[functions.create-paymongo-checkout]
+verify_jwt = false
+
+[functions.paymongo-webhook]
+verify_jwt = false
+
+[functions.manage-client-account]
+verify_jwt = false

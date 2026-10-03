@@ -18,12 +18,8 @@ export default function Dashboard() {
 
   const daysLeft = guestDaysRemaining(profile?.guest_expires_at);
 
-  if (isGuest) {
-    return <Navigate to="/create-booking?mode=walk_in" replace />;
-  }
-
   useEffect(() => {
-    if (!user) return;
+    if (!user || isGuest) return;
     Promise.all([
       getMyBookings(),
       getUnreadCount(),
@@ -31,14 +27,18 @@ export default function Dashboard() {
     ]).then(([bookings, notifCount, gallery]) => {
       setStats({
         bookings: bookings.length,
-        upcoming: bookings.filter((b) => ["confirmed", "awaiting_payment", "payment_submitted"].includes(b.status)).length,
+        upcoming: bookings.filter((b) => ["confirmed", "awaiting_payment", "payment_submitted", "pending"].includes(b.status)).length,
         gallery: gallery.count,
         notifications: notifCount,
       });
-      const active = bookings.find((b) => ["confirmed", "payment_submitted", "awaiting_payment"].includes(b.status));
+      const active = bookings.find((b) => ["confirmed", "payment_submitted", "awaiting_payment", "pending"].includes(b.status));
       setLatestBooking(active || bookings[0] || null);
     }).catch(console.error);
-  }, [user]);
+  }, [user, isGuest]);
+
+  if (isGuest) {
+    return <Navigate to="/create-booking?mode=walk_in" replace />;
+  }
 
   const cards = [
     { title: "Bookings", value: stats.bookings, desc: "Total sessions", icon: FaCalendarAlt, link: "/client-bookings" },
@@ -65,10 +65,10 @@ export default function Dashboard() {
               <p className="font-semibold text-sky-900">Guest session</p>
               <p className="text-sm text-sky-800 mt-1">
                 {daysLeft == null
-                  ? "Create a password to keep your bookings and mood board permanently."
+                  ? "Create a password to keep logging in. Booking and payment records stay with the studio either way."
                   : daysLeft === 0
-                    ? "Your session expires today. Create a password to keep your photos and bookings."
-                    : `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} left before this session is deleted.`}
+                    ? "Your guest login expires today. Create a password to keep access — booking records stay either way."
+                    : `About ${daysLeft} day${daysLeft === 1 ? "" : "s"} left on this guest login. Booking and payment records stay with the studio.`}
               </p>
             </div>
             <Link

@@ -18,12 +18,27 @@ async function getCurrentUserId() {
 async function attachProfiles(bookings) {
   if (!bookings?.length) return bookings || [];
 
+  const withSnapshot = (booking, profile) => {
+    if (profile) return { ...booking, profiles: profile };
+    const snap = booking.guest_snapshot || {};
+    if (!snap.full_name && !snap.email) return { ...booking, profiles: null };
+    return {
+      ...booking,
+      profiles: {
+        full_name: snap.full_name || "Deleted account",
+        email: snap.email || "",
+        phone: snap.phone || "",
+        address: snap.address || "",
+      },
+    };
+  };
+
   const clientIds = [...new Set(bookings.map((b) => b.client_id).filter(Boolean))];
-  if (!clientIds.length) return bookings;
+  if (!clientIds.length) return bookings.map((b) => withSnapshot(b, null));
 
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, full_name, email, phone, address, is_guest, claimed_at, deactivated_at")
     .in("id", clientIds);
 
   if (error) {
@@ -32,7 +47,7 @@ async function attachProfiles(bookings) {
   }
 
   const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
-  return bookings.map((b) => ({ ...b, profiles: profileMap[b.client_id] || null }));
+  return bookings.map((b) => withSnapshot(b, b.client_id ? profileMap[b.client_id] || null : null));
 }
 
 async function expireUnapprovedBookings() {
@@ -289,15 +304,13 @@ export async function getClientBookings(clientId) {
   return data || [];
 }
 
-export async function saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {
-  const { error } = await supabase
-    .from("cancellations")
-    .update({
-      fee_proof_url: proofUrl,
-      fee_proof_public_id: publicId,
-      fee_status: "awaiting",
-    })
-    .eq("id", cancellationId);
+export async function saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId, options = {}) {
+  const updates = {
+    fee_proof_url: proofUrl,
+    fee_proof_public_id: publicId,
+  };
+  if (!options.keepStatus) updates.fee_status = "awaiting";
+  const { error } = await supabase.from("cancellations").update(updates).eq("id", cancellationId);
   if (error) throw error;
 }
 
@@ -352,6 +365,91 @@ export async function getBookingStats() {
   return data;
 }
 
+export async function getPaidAwaitingConfirmation() {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*, packages(name, price), payments(*)")
+    .eq("status", "pending")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  const paid = (data || []).filter((b) =>
+    (b.payments || []).some((p) => p.status === "verified")
+  );
+  return attachProfiles(paid);
+}
+
+export async function confirmPaidBooking(id) {
+  const adminId = await getCurrentUserId();
+  const { data: booking, error: fetchError } = await supabase
+    .from("bookings")
+    .select("id, status, payments(status)")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking) throw new Error("Booking not found");
+  if (booking.status !== "pending") {
+    throw new Error("This booking is not waiting for confirmation.");
+  }
+  const paid = (booking.payments || []).some((p) => p.status === "verified");
+  if (!paid) throw new Error("This booking is not paid yet.");
+
+  const qrToken = crypto.randomUUID().replace(/-/g, "");
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({
+      status: "confirmed",
+      qr_token: qrToken,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("status", "pending")
+    .select()
+    .single();
+  if (error) throw error;
+
+  const { error: logError } = await supabase.from("activity_logs").insert({
+    admin_id: adminId,
+    action_description: `Admin confirmed Booking #${String(id).slice(0, 8)}`,
+  });
+  if (logError) console.warn("Activity log failed:", logError.message);
+  return data;
+}
+
+export async function disapprovePaidBooking(id, note = "Booking was not approved by the studio") {
+  const adminId = await getCurrentUserId();
+  const result = await rejectBooking(id, note);
+  const { error: logError } = await supabase.from("activity_logs").insert({
+    admin_id: adminId,
+    action_description: `Admin disapproved Booking #${String(id).slice(0, 8)}`,
+  });
+  if (logError) console.warn("Activity log failed:", logError.message);
+  return result;
+}
+
+export function subscribeActivityLogs(callback) {
+  const channel = supabase
+    .channel("activity-logs")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "activity_logs" },
+      () => callback()
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+export async function getRecentActivityLogs() {
+  const { data, error } = await supabase
+    .from("activity_logs")
+    .select("id, action_description, created_at, profiles:admin_id(full_name)")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  return data || [];
+}
+
 export async function getPendingVerifications() {
   const { data, error } = await supabase
     .from("bookings")
@@ -366,7 +464,7 @@ export async function getActiveBookingsWithChecklists() {
   const { data, error } = await supabase
     .from("bookings")
     .select("*, packages(name), event_checklists(*)")
-    .in("status", ["awaiting_payment", "payment_submitted", "confirmed"])
+    .in("status", ["awaiting_payment", "payment_submitted", "pending", "confirmed"])
     .order("created_at", { ascending: false })
     .limit(15);
   if (error) throw error;
@@ -377,7 +475,7 @@ export async function getUnreadPendingCount() {
   const { count, error } = await supabase
     .from("bookings")
     .select("*", { count: "exact", head: true })
-    .eq("status", "payment_submitted")
+    .in("status", ["payment_submitted", "pending"])
     .is("admin_read_at", null);
   if (error) {
     console.warn("Unread count unavailable:", error.message);

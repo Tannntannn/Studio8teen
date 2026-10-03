@@ -19,6 +19,24 @@ export async function updateProfile(userId, updates) {
   return data;
 }
 
+export async function manageClientAccount(userId, action) {
+  const { data, error } = await supabase.functions.invoke("manage-client-account", {
+    body: { user_id: userId, action },
+  });
+  if (error) {
+    let message = error.message;
+    try {
+      const body = await error.context?.json?.();
+      if (body?.error) message = body.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(message || "Could not update the account.");
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
 export async function getAllClients() {
   const { data, error } = await supabase
     .from("profiles")
@@ -68,68 +86,82 @@ export async function getFaqEntries() {
   return data || [];
 }
 
-export async function searchFaq(query) {
-  const entries = await getFaqEntries();
+const FAQ_STOP = new Set([
+  "how", "do", "does", "did", "i", "a", "an", "the", "my", "to", "is", "are", "what", "can", "you",
+  "your", "of", "for", "and", "or", "it", "me", "we", "our", "about", "please", "there", "this",
+]);
+
+const FAQ_SYNONYMS = {
+  book: ["booking", "book", "reserve", "appointment", "walk-in", "walkin"],
+  pay: ["payment", "pay", "gcash", "paymongo", "maya", "downpayment", "deposit", "cash"],
+  cancel: ["cancel", "cancellation", "refund", "reschedule"],
+  photo: ["photo", "photos", "gallery", "portfolio", "pictures", "softcopy", "enhanced"],
+  hour: ["hours", "open", "operating", "sunday", "monday"],
+  late: ["late", "arrival", "arrive", "tardy"],
+  companion: ["companion", "companions", "guest", "guests", "friend"],
+  damage: ["damage", "damaged", "penalty", "penalties", "equipment", "backdrop"],
+  belong: ["belongings", "lost", "valuables", "personal"],
+};
+
+function faqTokens(query) {
   const q = query.toLowerCase().trim();
-  const words = q.split(/\s+/).filter((w) => w.length > 1);
-
-  const synonyms = {
-    book: ["booking", "book", "schedule", "reserve", "appointment", "walk-in", "walk in", "online"],
-    pay: ["payment", "pay", "gcash", "downpayment", "deposit", "proof"],
-    cancel: ["cancel", "cancellation", "refund", "reschedule"],
-    photo: ["photo", "photos", "gallery", "portfolio", "pictures", "images", "soft copies", "soft copy", "enhanced"],
-    hour: ["hour", "hours", "open", "time", "schedule", "operating"],
-    price: ["price", "cost", "package", "rate", "fee"],
-    mood: ["mood", "theme", "board", "inspiration"],
-    pose: ["pose", "poses", "posing"],
-    deliver: ["delivery", "deliver", "turnaround", "ready", "receive", "upload"],
-    late: ["late", "arrival", "arrive", "minutes", "tardy"],
-    companion: ["companion", "companions", "guest", "guests", "extra", "friend"],
-    damage: ["damage", "damaged", "penalty", "penalties", "equipment", "backdrop", "break"],
-    belong: ["belongings", "lost", "valuables", "personal", "items"],
-  };
-
-  const expandedWords = new Set(words);
+  const words = q
+    .split(/[^a-z0-9₱]+/i)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !FAQ_STOP.has(w));
+  const expanded = new Set(words);
   for (const word of words) {
-    for (const [key, list] of Object.entries(synonyms)) {
-      if (list.some((s) => word.includes(s) || s.includes(word))) {
-        expandedWords.add(key);
-        list.forEach((s) => expandedWords.add(s));
+    for (const [key, list] of Object.entries(FAQ_SYNONYMS)) {
+      if (list.some((s) => s === word || word.includes(s) || s.includes(word))) {
+        expanded.add(key);
+        list.forEach((s) => expanded.add(s));
       }
     }
   }
+  return { q, expanded };
+}
 
-  let best = null;
-  let bestScore = 0;
+export async function searchFaq(query) {
+  const entries = await getFaqEntries();
+  const { q, expanded } = faqTokens(query);
+  const ranked = [];
 
   for (const entry of entries) {
-    const question = entry.question.toLowerCase();
-    const answer = entry.answer.toLowerCase();
-    const keywords = (entry.keywords || []).map((k) => k.toLowerCase());
-    const blob = `${question} ${answer} ${keywords.join(" ")}`;
+    const question = (entry.question || "").toLowerCase();
+    const answer = (entry.answer || "").toLowerCase();
+    const keywords = (entry.keywords || []).map((k) => String(k).toLowerCase());
     let score = 0;
 
-    if (question === q) score += 20;
-    if (blob.includes(q)) score += 12;
-    if (question.includes(q) || q.includes(question.slice(0, Math.min(question.length, 24)))) score += 8;
+    if (question === q) score += 30;
+    if (q && (question.includes(q) || keywords.some((k) => k === q || q.includes(k)))) score += 14;
 
-    for (const word of expandedWords) {
-      if (question.includes(word)) score += 4;
-      if (answer.includes(word)) score += 2;
-      if (keywords.some((k) => k === word || k.includes(word) || word.includes(k))) score += 6;
+    for (const word of expanded) {
+      if (keywords.some((k) => k === word)) score += 8;
+      else if (keywords.some((k) => k.includes(word) || word.includes(k))) score += 4;
+      if (question.includes(word)) score += 3;
+      if (answer.includes(word)) score += 1;
     }
 
-    if (score > bestScore) {
-      bestScore = score;
-      best = entry;
-    }
+    ranked.push({ entry, score });
   }
 
-  const contactFallback = `I'm not sure about that. Please contact Studio 8Teen about your question.\n\nPhone: ${STUDIO_PHONE_DISPLAY} (${STUDIO_PHONE})\nEmail: ${STUDIO_EMAIL}\nFacebook: facebook.com/profile.php?id=61556578913301`;
+  ranked.sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  const suggestions = ranked
+    .filter((row) => row.score > 0 && row.entry?.question)
+    .slice(0, 3)
+    .map((row) => row.entry.question);
 
-  if (!best || bestScore < 5) {
-    return { answer: contactFallback, matched: false };
+  const contactFallback = `I'm not sure about that. Try one of the suggestions, or contact Studio 8Teen.\n\nPhone: ${STUDIO_PHONE_DISPLAY}\nEmail: ${STUDIO_EMAIL}\nFacebook: facebook.com/profile.php?id=61556578913301`;
+
+  if (!best || best.score < 8) {
+    return { answer: contactFallback, matched: false, suggestions };
   }
 
-  return { answer: best.answer, matched: true, question: best.question };
+  return {
+    answer: best.entry.answer,
+    matched: true,
+    question: best.entry.question,
+    suggestions: suggestions.filter((s) => s !== best.entry.question).slice(0, 2),
+  };
 }

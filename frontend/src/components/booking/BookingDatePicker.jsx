@@ -1,5 +1,5 @@
-import { AVAILABILITY_COLORS, getDayStatus } from "../../lib/availabilityUtils";
-import { areAllTimeSlotsPast, localDateISO } from "../../lib/dateUtils";
+import { AVAILABILITY_COLORS, getDayStatus, getSlotStatus } from "../../lib/availabilityUtils";
+import { areAllTimeSlotsPast, isTimeSlotPast, localDateISO } from "../../lib/dateUtils";
 
 const DAY_STYLES = {
   available: `${AVAILABILITY_COLORS.available} cursor-pointer`,
@@ -88,25 +88,27 @@ export default function BookingDatePicker({
           const slots = availabilityByDate[date] || [];
           let status = isPast || isBeyondMax ? "past" : slots.length ? getDayStatus(slots) : "available";
 
-          // Today with every studio slot already passed → disable for clients
-          if (!isPast && !isBeyondMax && date === today) {
-            const times =
-              (allSlotTimes || []).length > 0
-                ? allSlotTimes
-                : slots.map((s) => s.time_slot).filter(Boolean);
-            if (times.length && areAllTimeSlotsPast(times)) {
-              status = "past";
-            } else if (slots.length) {
-              const hasBookableFuture = slots.some(
-                (s) =>
-                  s.is_enabled !== false &&
-                  s.booked_count < s.capacity &&
-                  !areAllTimeSlotsPast([s.time_slot])
-              );
-              if (!hasBookableFuture) {
-                status = getDayStatus(slots) === "full" ? "full" : "past";
-              }
+          const times =
+            (allSlotTimes || []).length > 0
+              ? allSlotTimes
+              : slots.map((s) => s.time_slot).filter(Boolean);
+          const slotMap = Object.fromEntries(slots.map((s) => [s.time_slot, s]));
+          const isToday = date === today;
+
+          // Match the time-slot panel: if nothing can be booked, the day is red (or past)
+          if (!isPast && !isBeyondMax && times.length && slots.length) {
+            const hasBookable = times.some((time) => {
+              if (isToday && isTimeSlotPast(time)) return false;
+              const row = slotMap[time];
+              const slotStatus = getSlotStatus(row);
+              return slotStatus === "available" || slotStatus === "partial";
+            });
+            if (!hasBookable) {
+              if (isToday && areAllTimeSlotsPast(times)) status = "past";
+              else status = getDayStatus(slots) === "closed" ? "closed" : "full";
             }
+          } else if (!isPast && !isBeyondMax && isToday && times.length && areAllTimeSlotsPast(times)) {
+            status = "past";
           }
 
           const selectable = !isPast && !isBeyondMax && (status === "available" || status === "partial");

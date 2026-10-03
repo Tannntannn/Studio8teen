@@ -9,7 +9,7 @@ import {
   deleteTheme,
   asStringArray,
 } from "../../services/moodBoardThemes";
-import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
+import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl, getCutoutUrl } from "../../lib/cloudinary";
 import { analyzeImageFiles, analyzeImageUrls } from "../../lib/imageAnalysis";
 import { analyzeImagesWithVision, localColorSuggestionsOnly } from "../../services/imageVision";
 import { normalizeEventType } from "../../lib/themeMatching";
@@ -22,6 +22,7 @@ import {
 import MoodBoardCategoryManager from "../../components/admin/MoodBoardCategoryManager";
 import CategoryMultiSelect from "../../components/ui/CategoryMultiSelect";
 import { asCategoryValues } from "../../services/moodBoardCategories";
+import { colorNameFromHex, OUTFIT_CATEGORIES, PROP_CATEGORIES } from "../../lib/colorNames";
 import Swal from "sweetalert2";
 
 const EMPTY_FORM = {
@@ -54,6 +55,36 @@ function arrayToLines(arr) {
   return asStringArray(arr).join("\n");
 }
 
+function guessCategory(text, categories, fallback) {
+  const lower = String(text || "").toLowerCase();
+  for (const cat of categories) {
+    if (lower.includes(cat.toLowerCase())) return cat;
+  }
+  // Keyword hints for outfits/props
+  const hints = {
+    Dress: ["dress", "gown", "barong"],
+    Suit: ["suit", "tuxedo", "blazer"],
+    Casual: ["casual", "jeans", "tee"],
+    Formal: ["formal", "evening"],
+    Traditional: ["filipiniana", "baro", "kimono", "traditional"],
+    Accessories: ["hat", "bag", "jewelry", "veil", "accessory"],
+    Footwear: ["shoe", "heel", "boot", "sneaker"],
+    Floral: ["flower", "bouquet", "floral", "petal"],
+    Furniture: ["chair", "sofa", "table", "furniture"],
+    Lighting: ["lamp", "candle", "light", "chandelier"],
+    Decor: ["decor", "vase", "frame", "ornament"],
+    Backdrop: ["backdrop", "curtain", "arch"],
+    Tableware: ["plate", "glass", "cup", "tableware"],
+    Signage: ["sign", "banner", "letter"],
+  };
+  for (const cat of categories) {
+    for (const word of hints[cat] || []) {
+      if (lower.includes(word)) return cat;
+    }
+  }
+  return fallback || categories[categories.length - 1] || "Other";
+}
+
 export default function AdminMoodBoardThemes() {
   const [themes, setThemes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +95,10 @@ export default function AdminMoodBoardThemes() {
   const [analyzing, setAnalyzing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [currentImages, setCurrentImages] = useState([]);
+  const [currentOutfits, setCurrentOutfits] = useState([]);
+  const [currentProps, setCurrentProps] = useState([]);
+  const [outfitCategory, setOutfitCategory] = useState(OUTFIT_CATEGORIES[0]);
+  const [propCategory, setPropCategory] = useState(PROP_CATEGORIES[0]);
   const [suggestionNote, setSuggestionNote] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [categoryLabels, setCategoryLabels] = useState(() =>
@@ -89,6 +124,10 @@ export default function AdminMoodBoardThemes() {
     setEditingId("new");
     setForm(EMPTY_FORM);
     setCurrentImages([]);
+    setCurrentOutfits([]);
+    setCurrentProps([]);
+    setOutfitCategory(OUTFIT_CATEGORIES[0]);
+    setPropCategory(PROP_CATEGORIES[0]);
     setSuggestionNote("");
     setTagInput("");
   };
@@ -96,6 +135,10 @@ export default function AdminMoodBoardThemes() {
   const startEdit = (theme) => {
     setEditingId(theme.id);
     setCurrentImages(theme.inspiration_images || []);
+    setCurrentOutfits(theme.outfit_images || []);
+    setCurrentProps(theme.prop_images || []);
+    setOutfitCategory(OUTFIT_CATEGORIES[0]);
+    setPropCategory(PROP_CATEGORIES[0]);
     setSuggestionNote("");
     setTagInput("");
     setForm({
@@ -122,6 +165,8 @@ export default function AdminMoodBoardThemes() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setCurrentImages([]);
+    setCurrentOutfits([]);
+    setCurrentProps([]);
     setSuggestionNote("");
     setTagInput("");
   };
@@ -144,6 +189,8 @@ export default function AdminMoodBoardThemes() {
     is_active: form.is_active,
     sort_order: Number(form.sort_order) || 0,
     inspiration_images: currentImages,
+    outfit_images: currentOutfits,
+    prop_images: currentProps,
   });
 
   // Merge AI suggestions into the form. Only fill fields the admin has left empty,
@@ -229,7 +276,9 @@ export default function AdminMoodBoardThemes() {
       setSuggestionNote(
         result?.meta?.error === "rate_limited"
           ? "AI is busy — quick local suggestions are applied. Try Re-analyze in a minute."
-          : "AI unavailable — quick local suggestions are applied."
+          : `AI unavailable — quick local suggestions are applied.${
+              result?.meta?.detail ? ` (${String(result.meta.detail).slice(0, 120)})` : ""
+            }`
       );
       return;
     }
@@ -300,6 +349,109 @@ export default function AdminMoodBoardThemes() {
 
   const handleRemoveImage = (imageId) => {
     setCurrentImages((imgs) => imgs.filter((img) => img.id !== imageId));
+  };
+
+  const uploadAssetImages = async (files, { kind, category }) => {
+    const folder =
+      kind === "outfit" ? CLOUDINARY_FOLDERS.moodBoardOutfits : CLOUDINARY_FOLDERS.moodBoardProps;
+    const uploaded = await Promise.all(
+      files.map(async (file) => {
+        const { url, publicId, rawUrl } = await uploadToCloudinary(file, folder, {
+          backgroundRemoval: true,
+        });
+        return {
+          id: crypto.randomUUID(),
+          url,
+          raw_url: rawUrl,
+          public_id: publicId,
+          label: file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
+          category,
+          kind,
+        };
+      })
+    );
+    return uploaded;
+  };
+
+  const handleOutfitUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    setSuggestionNote("Uploading outfits and removing backgrounds...");
+    try {
+      const uploaded = await uploadAssetImages(files, { kind: "outfit", category: outfitCategory });
+      setCurrentOutfits((list) => [...list, ...uploaded]);
+      setSuggestionNote("Outfits added — AI will refine categories when you re-analyze inspiration images.");
+      // Light AI pass on outfit cutouts for category accuracy
+      setAnalyzing(true);
+      const result = await analyzeImagesWithVision(
+        uploaded.map((u) => u.raw_url || u.url),
+        { categoryOptions: categoryLabels }
+      );
+      if (result?.suggestions?.outfit_suggestions?.length) {
+        const lines = result.suggestions.outfit_suggestions;
+        setCurrentOutfits((list) =>
+          list.map((item) => {
+            const idx = uploaded.findIndex((u) => u.id === item.id);
+            if (idx < 0) return item;
+            return {
+              ...item,
+              label: lines[idx] || lines[0] || item.label,
+              category: guessCategory(lines[idx] || lines.join(" "), OUTFIT_CATEGORIES, item.category),
+            };
+          })
+        );
+        applySuggestions(
+          { outfit_suggestions: lines },
+          { overwrite: false }
+        );
+      }
+      setSuggestionNote("Outfit images ready (background removed when Cloudinary add-on is enabled).");
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Outfit upload failed", text: err.message });
+    } finally {
+      setUploading(false);
+      setAnalyzing(false);
+      e.target.value = "";
+    }
+  };
+
+  const handlePropUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    setSuggestionNote("Uploading props and removing backgrounds...");
+    try {
+      const uploaded = await uploadAssetImages(files, { kind: "prop", category: propCategory });
+      setCurrentProps((list) => [...list, ...uploaded]);
+      setAnalyzing(true);
+      const result = await analyzeImagesWithVision(
+        uploaded.map((u) => u.raw_url || u.url),
+        { categoryOptions: categoryLabels }
+      );
+      if (result?.suggestions?.prop_suggestions?.length) {
+        const lines = result.suggestions.prop_suggestions;
+        setCurrentProps((list) =>
+          list.map((item) => {
+            const idx = uploaded.findIndex((u) => u.id === item.id);
+            if (idx < 0) return item;
+            return {
+              ...item,
+              label: lines[idx] || lines[0] || item.label,
+              category: guessCategory(lines[idx] || lines.join(" "), PROP_CATEGORIES, item.category),
+            };
+          })
+        );
+        applySuggestions({ prop_suggestions: lines }, { overwrite: false });
+      }
+      setSuggestionNote("Prop images ready (background removed when Cloudinary add-on is enabled).");
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Prop upload failed", text: err.message });
+    } finally {
+      setUploading(false);
+      setAnalyzing(false);
+      e.target.value = "";
+    }
   };
 
   const addTag = (raw) => {
@@ -411,7 +563,9 @@ export default function AdminMoodBoardThemes() {
                       {theme.event_type && <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#F8F6F3] text-gray-500 border border-[#E8E1DA]">{theme.event_type}</span>}
                     </div>
                     <p className="text-[10px] text-gray-400 mt-2">
-                      {(theme.inspiration_images || []).length} images · {theme.is_active ? "Active" : "Hidden"}
+                      {(theme.inspiration_images || []).length} scenes ·{" "}
+                      {(theme.outfit_images || []).length} outfits ·{" "}
+                      {(theme.prop_images || []).length} props · {theme.is_active ? "Active" : "Hidden"}
                     </p>
                   </div>
                   <div className="flex gap-1">
@@ -574,7 +728,7 @@ export default function AdminMoodBoardThemes() {
                     {form.color_palette.map((hex) => (
                       <span key={hex} className="inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-lg border border-[#E8E1DA] bg-white text-xs">
                         <span className="w-5 h-5 rounded-md border border-[#E8E1DA]" style={{ backgroundColor: hex }} />
-                        <span className="font-mono">{hex}</span>
+                        <span className="font-medium text-[#5B4636]">{colorNameFromHex(hex)}</span>
                         <button type="button" onClick={() => removeColor(hex)} className="text-gray-400 hover:text-red-500">
                           <FaTimes size={10} />
                         </button>
@@ -584,6 +738,82 @@ export default function AdminMoodBoardThemes() {
                       + Add color
                     </button>
                     {form.color_palette.length === 0 && <span className="text-xs text-gray-400">No colors yet</span>}
+                  </div>
+                </div>
+
+                {/* Outfit & prop cutout images for collage */}
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="bg-[#F8F6F3] rounded-xl p-4">
+                    <label className="block text-xs font-semibold text-[#5B4636] mb-2">Outfit cutouts</label>
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      Shown in the center of the collage. Background is removed automatically when available.
+                    </p>
+                    <select
+                      value={outfitCategory}
+                      onChange={(e) => setOutfitCategory(e.target.value)}
+                      className="w-full mb-2 border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm bg-white outline-none focus:border-[#A98B75]"
+                    >
+                      {OUTFIT_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <label className={`inline-block px-3 py-2 rounded-xl bg-[#5B4636] text-white text-xs cursor-pointer ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                      Upload outfits
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={handleOutfitUpload} disabled={uploading} />
+                    </label>
+                    {currentOutfits.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mt-3">
+                        {currentOutfits.map((img) => (
+                          <div key={img.id} className="relative aspect-square rounded-lg overflow-hidden bg-white border border-[#E8E1DA] group">
+                            <img src={getCutoutUrl(img.url, 200)} alt="" className="w-full h-full object-contain p-1" onError={(e) => { e.currentTarget.src = getThumbnailUrl(img.url, 200, 200); }} />
+                            <span className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 py-0.5 truncate">{img.category}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCurrentOutfits((list) => list.filter((x) => x.id !== img.id))}
+                              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white text-xs opacity-0 group-hover:opacity-100"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-[#F8F6F3] rounded-xl p-4">
+                    <label className="block text-xs font-semibold text-[#5B4636] mb-2">Prop cutouts</label>
+                    <p className="text-[11px] text-gray-500 mb-2">
+                      Layered with outfits in the collage center zone.
+                    </p>
+                    <select
+                      value={propCategory}
+                      onChange={(e) => setPropCategory(e.target.value)}
+                      className="w-full mb-2 border border-[#E8E1DA] rounded-xl px-3 py-2 text-sm bg-white outline-none focus:border-[#A98B75]"
+                    >
+                      {PROP_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <label className={`inline-block px-3 py-2 rounded-xl bg-[#5B4636] text-white text-xs cursor-pointer ${uploading ? "opacity-50 pointer-events-none" : ""}`}>
+                      Upload props
+                      <input type="file" accept="image/*" multiple className="hidden" onChange={handlePropUpload} disabled={uploading} />
+                    </label>
+                    {currentProps.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2 mt-3">
+                        {currentProps.map((img) => (
+                          <div key={img.id} className="relative aspect-square rounded-lg overflow-hidden bg-white border border-[#E8E1DA] group">
+                            <img src={getCutoutUrl(img.url, 200)} alt="" className="w-full h-full object-contain p-1" onError={(e) => { e.currentTarget.src = getThumbnailUrl(img.url, 200, 200); }} />
+                            <span className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] px-1 py-0.5 truncate">{img.category}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCurrentProps((list) => list.filter((x) => x.id !== img.id))}
+                              className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white text-xs opacity-0 group-hover:opacity-100"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
