@@ -4,8 +4,10 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import ImageLightbox from "../../components/ui/ImageLightbox";
 import { getAllClients } from "../../services/profiles";
+import { getClientBookings } from "../../services/bookings";
 import { addClientGalleryItem, getClientGalleryByClientId, deleteClientGalleryItem } from "../../services/gallery";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
+import { GALLERY_CATEGORIES, GALLERY_PHOTO_LIMIT } from "../../lib/constants";
 import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
 
@@ -13,6 +15,9 @@ export default function AdminClientGalleries() {
   const { user } = useAuth();
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
+  const [bookings, setBookings] = useState([]);
+  const [bookingId, setBookingId] = useState("");
+  const [category, setCategory] = useState("");
   const [items, setItems] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(null);
@@ -24,31 +29,52 @@ export default function AdminClientGalleries() {
   }, []);
 
   useEffect(() => {
-    if (!clientId) { setItems([]); return; }
+    if (!clientId) {
+      setItems([]);
+      setBookings([]);
+      setBookingId("");
+      return;
+    }
     getClientGalleryByClientId(clientId).then(setItems).catch(console.error);
+    getClientBookings(clientId).then(setBookings).catch(console.error);
   }, [clientId]);
+
+  const photosOnBooking = items.filter((item) => item.booking_id === bookingId).length;
+  const remaining = Math.max(GALLERY_PHOTO_LIMIT - photosOnBooking, 0);
 
   const handleBulkUpload = async (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !clientId) return;
+    if (!bookingId || !category) {
+      Swal.fire({ icon: "warning", title: "Choose a booking and category", text: "Each photo belongs to one booking and one category." });
+      e.target.value = "";
+      return;
+    }
+    if (!remaining) {
+      Swal.fire({ icon: "warning", title: "Photo limit reached", text: `This booking already has ${GALLERY_PHOTO_LIMIT} photos.` });
+      e.target.value = "";
+      return;
+    }
+    const batch = files.slice(0, remaining);
     setUploading(true);
     try {
-      await Promise.all(
-        files.map(async (file) => {
-          const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.clientGallery(clientId));
-          await addClientGalleryItem({
-            client_id: clientId,
-            cloudinary_url: url,
-            cloudinary_public_id: publicId,
-            uploaded_by: user.id,
-          });
-        })
-      );
+      for (const file of batch) {
+        const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.clientGallery(clientId));
+        await addClientGalleryItem({
+          client_id: clientId,
+          booking_id: bookingId,
+          category,
+          cloudinary_url: url,
+          cloudinary_public_id: publicId,
+          uploaded_by: user.id,
+        });
+      }
       await getClientGalleryByClientId(clientId).then(setItems);
       Swal.fire({
         icon: "success",
-        title: files.length === 1 ? "Photo uploaded" : `${files.length} photos uploaded`,
-        timer: 1500,
+        title: batch.length === 1 ? "Photo uploaded" : `${batch.length} photos uploaded`,
+        text: files.length > batch.length ? `Only ${batch.length} fit under the ${GALLERY_PHOTO_LIMIT}-photo limit.` : "",
+        timer: 1800,
         showConfirmButton: false,
       });
     } catch (err) {
@@ -77,26 +103,52 @@ export default function AdminClientGalleries() {
     <AdminLayout>
       <div>
         <h1 className="heading-serif text-4xl font-bold text-[#5B4636] mb-2">Client Galleries</h1>
-        <p className="text-gray-500 mb-8">Upload post-shoot photos — select one or many images at once. Click any image to preview full size.</p>
+        <p className="text-gray-500 mb-8">Upload post-shoot photos to a booking. Each booking holds up to {GALLERY_PHOTO_LIMIT} photos.</p>
 
-        <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 mb-8">
+        <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 mb-8 space-y-3">
           <select
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            className="border border-[#E8E1DA] rounded-xl px-4 py-2.5 mb-4 w-full max-w-md text-sm"
+            className="border border-[#E8E1DA] rounded-xl px-4 py-2.5 w-full max-w-md text-sm"
           >
             <option value="">Select client</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>{c.full_name} ({c.email})</option>
             ))}
           </select>
+          <select
+            value={bookingId}
+            onChange={(e) => setBookingId(e.target.value)}
+            disabled={!clientId}
+            className="border border-[#E8E1DA] rounded-xl px-4 py-2.5 w-full max-w-md text-sm"
+          >
+            <option value="">Select booking</option>
+            {bookings.map((booking) => (
+              <option key={booking.id} value={booking.id}>
+                {booking.event_date || "No date"} — {booking.packages?.name || "Package"}
+              </option>
+            ))}
+          </select>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="border border-[#E8E1DA] rounded-xl px-4 py-2.5 w-full max-w-md text-sm"
+          >
+            <option value="">Select category</option>
+            {GALLERY_CATEGORIES.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+          {bookingId && (
+            <p className="text-sm text-gray-500">{photosOnBooking} of {GALLERY_PHOTO_LIMIT} photos on this booking.</p>
+          )}
           <label
             className={`inline-block px-4 py-2.5 rounded-xl text-white text-sm font-medium cursor-pointer transition ${
-              clientId ? "bg-[#A98B75] hover:bg-[#8a7260]" : "bg-gray-300 pointer-events-none"
+              clientId && bookingId && category && remaining ? "bg-[#A98B75] hover:bg-[#8a7260]" : "bg-gray-300 pointer-events-none"
             }`}
           >
             {uploading ? "Uploading..." : "Upload photo(s)"}
-            <input type="file" accept="image/*" multiple onChange={handleBulkUpload} className="hidden" disabled={!clientId || uploading} />
+            <input type="file" accept="image/*" multiple onChange={handleBulkUpload} className="hidden" disabled={!clientId || !bookingId || !category || uploading || !remaining} />
           </label>
         </div>
 

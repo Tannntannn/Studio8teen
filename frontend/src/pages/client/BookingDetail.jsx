@@ -5,11 +5,10 @@ import { FaDownload, FaQrcode } from "react-icons/fa";
 import QRCode from "qrcode";
 import ClientLayout from "../../components/layout/ClientLayout";
 import PaymentSection from "../../components/booking/PaymentSection";
+import RefundRequestSection from "../../components/booking/RefundRequestSection";
 import CancellationFeeSection from "../../components/booking/CancellationFeeSection";
 import { useAuth } from "../../context/AuthContext";
 import { getBooking, requestCancellation, cancelBookingFree } from "../../services/bookings";
-import { getChecklist, updateChecklist } from "../../services/gallery";
-import { getChecklistProgress, getChecklistTasks, formatCheckedAt } from "../../lib/checklist";
 import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../lib/bookingReceipt";
 import { CANCELLATION_FEE } from "../../lib/constants";
 import { formatTime12h } from "../../lib/dateUtils";
@@ -27,7 +26,6 @@ export default function BookingDetail() {
   const { id } = useParams();
   const { profile } = useAuth();
   const [booking, setBooking] = useState(null);
-  const [checklist, setChecklist] = useState(null);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [downloadingQr, setDownloadingQr] = useState(false);
@@ -37,10 +35,8 @@ export default function BookingDetail() {
   const [cancelling, setCancelling] = useState(false);
 
   const load = () => {
-    getBooking(id).then(async (b) => {
+    getBooking(id).then((b) => {
       setBooking(b);
-      const cl = await getChecklist(id);
-      setChecklist(cl);
       if (b.qr_token && ["confirmed", "completed"].includes(b.status)) {
         const verifyUrl = `${window.location.origin}/verify/${b.qr_token}`;
         QRCode.toDataURL(verifyUrl, { width: 200 }).then(setQrDataUrl);
@@ -51,17 +47,6 @@ export default function BookingDetail() {
   };
 
   useEffect(() => { load(); }, [id]);
-
-  const toggleTask = async (index) => {
-    if (!checklist) return;
-    const tasks = checklist.tasks.map((t, i) => {
-      if (i !== index) return t;
-      const checked = !t.checked;
-      return { ...t, checked, checked_at: checked ? new Date().toISOString() : null };
-    });
-    const updated = await updateChecklist(id, tasks);
-    setChecklist(updated);
-  };
 
   const handleCancel = () => {
     setReasonChoice(CANCEL_REASONS[0]);
@@ -144,8 +129,6 @@ export default function BookingDetail() {
     );
   }
 
-  const tasks = getChecklistTasks(checklist);
-  const { checked, total, percent } = getChecklistProgress(tasks);
   const cancellation = booking.cancellations?.[0];
   const inCancellationFlow = ["cancellation_pending", "cancellation_submitted"].includes(booking.status);
 
@@ -186,44 +169,13 @@ export default function BookingDetail() {
             </div>
           )}
 
-          {checklist && !inCancellationFlow && (
-            <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
-              <div className="flex justify-between items-start mb-1">
-                <h3 className="font-semibold text-[#5B4636]">Event Preparation Checklist</h3>
-                <span className="text-xs font-medium text-[#A98B75]">{checked}/{total} done</span>
-              </div>
-              <p className="text-xs text-gray-500 mb-4">
-                Check off items as you prepare — your progress is visible to the studio when verifying payment.
-              </p>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-4">
-                <div className="h-full bg-[#A98B75] rounded-full transition-all" style={{ width: `${percent}%` }} />
-              </div>
-              <ul className="space-y-3">
-                {tasks.map((task, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={task.checked}
-                      onChange={() => toggleTask(i)}
-                      className="rounded mt-1 accent-[#A98B75]"
-                    />
-                    <div>
-                      <span className={task.checked ? "line-through text-gray-400" : "text-gray-700"}>{task.label}</span>
-                      {task.checked && task.checked_at && (
-                        <p className="text-[10px] text-gray-400 mt-0.5">Checked {formatCheckedAt(task.checked_at)}</p>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {!inCancellationFlow && booking.status !== "cancelled" && (
             <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
               <PaymentSection booking={booking} onUpdate={load} />
             </div>
           )}
+
+          <RefundRequestSection booking={booking} onUpdate={load} />
 
           {(booking.status === "confirmed" || booking.status === "completed") && qrDataUrl && (
             <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 text-center">

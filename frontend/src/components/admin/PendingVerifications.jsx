@@ -7,8 +7,6 @@ import {
   subscribePendingBookings,
   deleteBooking,
 } from "../../services/bookings";
-import { subscribeTableChanges } from "../../lib/realtime";
-import ClientChecklistSummary from "../booking/ClientChecklistSummary";
 import ConfirmModal from "../ui/ConfirmModal";
 
 const RECENT_HOURS = 24;
@@ -51,8 +49,7 @@ export default function PendingVerifications() {
   useEffect(() => {
     load();
     const unsubBookings = subscribePendingBookings(load);
-    const unsubChecklists = subscribeTableChanges("event_checklists", load);
-    return () => { unsubBookings(); unsubChecklists(); };
+    return () => { unsubBookings(); };
   }, []);
 
   const filtered = useMemo(() => {
@@ -142,7 +139,6 @@ export default function PendingVerifications() {
                     <span className="text-xs text-gray-500">{b.event_date} {b.time_slot}</span>
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1">Submitted {formatDateTime(b.created_at)}</p>
-                  <ClientChecklistSummary booking={b} compact />
                 </Link>
                 <div className="flex flex-col justify-center gap-1 flex-shrink-0">
                   <Link to={`/admin/bookings/${b.id}`} className="text-[10px] text-[#A98B75] font-medium px-2 py-1 text-center">

@@ -3,8 +3,6 @@ import { subscribeTableChanges } from "../lib/realtime";
 import { DEFAULT_SLOT_CAPACITY, DEFAULT_TIME_SLOTS } from "../lib/constants";
 import { notifyForClosedAvailability } from "./scheduleNotifications";
 
-export const TIME_SLOTS = DEFAULT_TIME_SLOTS;
-
 let cachedTimeSlots = null;
 
 export function clearTimeSlotsCache() {
@@ -98,22 +96,12 @@ function monthEnd(yearMonth) {
   return `${yearMonth}-${String(days).padStart(2, "0")}`;
 }
 
-export async function upsertAvailability(rows) {
-  const { error } = await supabase.from("studio_availability").upsert(rows, { onConflict: "avail_date,time_slot" });
-  if (error) throw error;
-}
-
 export async function syncAvailabilitySlot(date, timeSlot) {
   const { error } = await supabase.rpc("sync_availability_slot", {
     p_date: date,
     p_time_slot: timeSlot,
   });
   if (error) console.warn("sync_availability_slot:", error.message);
-}
-
-/** @deprecated Trigger syncs automatically; kept for compatibility */
-export async function incrementBookedCount(date, timeSlot) {
-  await syncAvailabilitySlot(date, timeSlot);
 }
 
 export async function updateAvailabilitySlot(date, timeSlot, { is_enabled, capacity }) {
@@ -146,10 +134,6 @@ export async function updateAvailabilitySlot(date, timeSlot, { is_enabled, capac
     notified = result.notified;
   }
   return { notified };
-}
-
-export async function toggleAvailabilitySlot(date, timeSlot, isEnabled) {
-  return updateAvailabilitySlot(date, timeSlot, { is_enabled: isEnabled });
 }
 
 export async function setDayAvailability(date, isEnabled, slots) {

@@ -6,7 +6,6 @@ import Swal from "sweetalert2";
 import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
-import ClientChecklistSummary from "../../components/booking/ClientChecklistSummary";
 import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking, confirmPaidBooking, disapprovePaidBooking } from "../../services/bookings";
 import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
@@ -462,10 +461,6 @@ export default function AdminBookingDetail() {
               </dl>
             </div>
 
-            <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
-              <ClientChecklistSummary booking={booking} />
-            </div>
-
             {qrDataUrl && (
               <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 text-center">
                 <h3 className="font-semibold text-[#5B4636] mb-3 flex items-center justify-center gap-2">
@@ -522,6 +517,12 @@ export default function AdminBookingDetail() {
                       <p className="text-xs text-gray-400 mb-1">Status</p>
                       <p className="font-medium text-[#A98B75] capitalize">{payment.status}</p>
                     </div>
+                    {payment.reference_number && (
+                      <div className="bg-[#F8F6F3] rounded-xl p-4 col-span-2 sm:col-span-3">
+                        <p className="text-xs text-gray-400 mb-1">Reference number</p>
+                        <p className="font-medium text-[#5B4636]">{payment.reference_number}</p>
+                      </div>
+                    )}
                   </div>
 
                   {payment.proof_image_url ? (
@@ -612,7 +613,7 @@ export default function AdminBookingDetail() {
       <ConfirmModal
         open={deleteOpen}
         title="Delete this booking?"
-        message={`This permanently removes the booking for ${booking.profiles?.full_name || "this client"} on ${booking.event_date}. Payment records and checklist data will also be deleted. This cannot be undone.`}
+        message={`This permanently removes the booking for ${booking.profiles?.full_name || "this client"} on ${booking.event_date}. Payment records will also be deleted. This cannot be undone.`}
         confirmLabel="Delete booking"
         cancelLabel="Keep booking"
         variant="danger"

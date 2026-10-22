@@ -52,6 +52,7 @@ export async function syncPackagesFromCatalog() {
     };
 
     if (existingPkg) {
+      if (existingPkg.catalog_locked) continue;
       // Keep any admin-uploaded package images when syncing catalog text fields.
       await updatePackage(existingPkg.id, row);
     } else {
@@ -61,6 +62,7 @@ export async function syncPackagesFromCatalog() {
 
   const catalogNames = new Set(PACKAGES_CATALOG.map((p) => p.name));
   for (const old of existing) {
+    if (old.catalog_locked) continue;
     if (!catalogNames.has(old.name)) {
       await updatePackage(old.id, { is_active: false });
     }

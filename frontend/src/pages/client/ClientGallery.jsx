@@ -3,6 +3,7 @@ import ClientLayout from "../../components/layout/ClientLayout";
 import ImageLightbox from "../../components/ui/ImageLightbox";
 import { getClientGallery } from "../../services/gallery";
 import { getThumbnailUrl } from "../../lib/cloudinary";
+import { GALLERY_CATEGORIES } from "../../lib/constants";
 import { useAuth } from "../../context/AuthContext";
 
 export default function ClientGallery() {
@@ -11,15 +12,16 @@ export default function ClientGallery() {
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState(null);
+  const [category, setCategory] = useState("All");
   const pageSize = 24;
 
   useEffect(() => {
     if (!user) return;
-    getClientGallery(user.id, page, pageSize).then(({ items: data, count }) => {
+    getClientGallery(user.id, page, pageSize, category).then(({ items: data, count }) => {
       setItems(data);
       setTotal(count);
     }).catch(console.error);
-  }, [user, page]);
+  }, [user, page, category]);
 
   return (
     <ClientLayout>
@@ -27,6 +29,25 @@ export default function ClientGallery() {
         <div className="mb-8 text-center">
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">My Portfolio</h1>
           <p className="mt-2 text-gray-500">Click any photo to view full size or download.</p>
+          <div className="flex flex-wrap justify-center gap-2 mt-5">
+            {["All", ...GALLERY_CATEGORIES].map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => {
+                  setCategory(name);
+                  setPage(0);
+                }}
+                className={`px-3 py-1.5 rounded-full text-sm border ${
+                  category === name
+                    ? "border-[#A98B75] bg-[#A98B75]/10 text-[#5B4636]"
+                    : "border-[#E8E1DA] text-gray-500"
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
 
         {items.length === 0 ? (
@@ -42,7 +63,7 @@ export default function ClientGallery() {
                   key={item.id}
                   type="button"
                   onClick={() => setLightboxIndex(i)}
-                  className="aspect-square rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 group"
+                  className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 group"
                 >
                   <img
                     src={getThumbnailUrl(item.cloudinary_url)}
@@ -50,6 +71,11 @@ export default function ClientGallery() {
                     loading="lazy"
                     className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                   />
+                  {item.category && (
+                    <span className="absolute bottom-2 left-2 text-[10px] px-2 py-0.5 rounded-full bg-white/90 text-[#5B4636]">
+                      {item.category}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

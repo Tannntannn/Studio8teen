@@ -47,10 +47,6 @@ export function markPushDismissed(userId) {
   if (userId) dismissedPushPrompts.add(String(userId));
 }
 
-export function clearPushPromptFlags(userId) {
-  if (userId) dismissedPushPrompts.delete(String(userId));
-}
-
 export function clearAllPushDismissed() {
   dismissedPushPrompts.clear();
 }
@@ -294,15 +290,6 @@ export async function acceptPushNotifications(userId) {
     }
     return false;
   }
-}
-
-/** Notifications page button. */
-export async function enablePushNotifications(userId) {
-  if (!userId) return false;
-  clearPushPromptFlags(userId);
-  // Request permission first while we still have a user gesture from the click
-  await requestBrowserNotificationPermission();
-  return acceptPushNotifications(userId);
 }
 
 export async function logoutOneSignal() {

@@ -35,15 +35,16 @@ export async function getClientGalleryByClientId(clientId) {
   return data || [];
 }
 
-export async function getClientGallery(clientId, page = 0, pageSize = 24) {
+export async function getClientGallery(clientId, page = 0, pageSize = 24, category = "All") {
   const from = page * pageSize;
   const to = from + pageSize - 1;
-  const { data, error, count } = await supabase
+  let query = supabase
     .from("client_gallery_items")
     .select("*", { count: "exact" })
     .eq("client_id", clientId)
-    .order("created_at", { ascending: false })
-    .range(from, to);
+    .order("created_at", { ascending: false });
+  if (category && category !== "All") query = query.eq("category", category);
+  const { data, error, count } = await query.range(from, to);
   if (error) throw error;
   return { items: data || [], count: count || 0 };
 }
@@ -72,46 +73,3 @@ export async function deletePoseSuggestion(id) {
   const { error } = await supabase.from("pose_suggestions").delete().eq("id", id);
   if (error) throw error;
 }
-
-export async function getMoodBoard(bookingId) {
-  const { data, error } = await supabase.from("mood_boards").select("*").eq("booking_id", bookingId).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-export async function upsertMoodBoard(bookingId, clientId, items, collage = undefined) {
-  const payload = {
-    booking_id: bookingId,
-    client_id: clientId,
-    items: items || [],
-  };
-  if (collage !== undefined) {
-    payload.collage = collage;
-  }
-  const { data, error } = await supabase
-    .from("mood_boards")
-    .upsert(payload, { onConflict: "booking_id" })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export async function getChecklist(bookingId) {
-  const { data, error } = await supabase.from("event_checklists").select("*").eq("booking_id", bookingId).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateChecklist(bookingId, tasks) {
-  const { data, error } = await supabase
-    .from("event_checklists")
-    .update({ tasks })
-    .eq("booking_id", bookingId)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}
-
-export { uploadToCloudinary, getThumbnailUrl, getGalleryUrl, CLOUDINARY_FOLDERS } from "../lib/cloudinary";

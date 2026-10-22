@@ -85,7 +85,7 @@ export async function getBooking(id) {
   await expireUnapprovedBookings();
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, packages(name, price, features), payments(*), event_checklists(*), mood_boards(*), cancellations(*)")
+    .select("*, packages(name, price, features), payments(*), mood_boards(*), cancellations(*)")
     .eq("id", id)
     .maybeSingle();
 
@@ -103,22 +103,6 @@ export async function createBooking(booking) {
     .select()
     .single();
   if (error) throw error;
-
-  const { error: checklistError } = await supabase.from("event_checklists").insert({
-    booking_id: data.id,
-    tasks: [
-      { label: "Confirm outfit choices", checked: false, checked_at: null },
-      { label: "Review pose suggestions", checked: false, checked_at: null },
-      { label: "Prepare props or accessories", checked: false, checked_at: null },
-      { label: "Get adequate rest the night before", checked: false, checked_at: null },
-      { label: "Arrive 15 minutes early", checked: false, checked_at: null },
-      { label: "Upload payment proof", checked: false, checked_at: null },
-    ],
-  });
-
-  if (checklistError) {
-    console.warn("Checklist not created:", checklistError.message);
-  }
 
   return data;
 }
@@ -156,11 +140,6 @@ export async function requestCancellation(id, reason, feeAmount = CANCELLATION_F
     .eq("id", id)
     .eq("status", "confirmed");
   if (bookingError) throw bookingError;
-}
-
-/** @deprecated Use requestCancellation */
-export async function cancelBooking(id, reason, feeAmount = CANCELLATION_FEE) {
-  return requestCancellation(id, reason, feeAmount);
 }
 
 async function releaseBookingSlot(eventDate, timeSlot) {
@@ -328,12 +307,6 @@ export async function confirmCancellationFeeProof(bookingId, cancellationId) {
   if (bookingError) throw bookingError;
 }
 
-/** @deprecated Use saveCancellationFeeProof + confirmCancellationFeeProof */
-export async function submitCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId) {
-  await saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId);
-  await confirmCancellationFeeProof(bookingId, cancellationId);
-}
-
 export async function deleteBooking(id) {
   const { data: booking, error: fetchError } = await supabase
     .from("bookings")
@@ -453,20 +426,9 @@ export async function getRecentActivityLogs() {
 export async function getPendingVerifications() {
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, packages(name, price), payments(*), event_checklists(*)")
+    .select("*, packages(name, price), payments(*)")
     .eq("status", "payment_submitted")
     .order("created_at", { ascending: false });
-  if (error) throw error;
-  return attachProfiles(data);
-}
-
-export async function getActiveBookingsWithChecklists() {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*, packages(name), event_checklists(*)")
-    .in("status", ["awaiting_payment", "payment_submitted", "pending", "confirmed"])
-    .order("created_at", { ascending: false })
-    .limit(15);
   if (error) throw error;
   return attachProfiles(data);
 }

@@ -16,6 +16,7 @@ import {
 import AdminLayout from "../../components/layout/AdminLayout";
 import { getBookingStats, getAllBookings } from "../../services/bookings";
 import { getRevenueStats } from "../../services/payments";
+import { getRefundRequests } from "../../services/refunds";
 
 const COLORS = ["#A98B75", "#5B4636", "#38bdf8", "#C4A882", "#8a7260", "#ef4444"];
 
@@ -30,6 +31,7 @@ export default function AdminReports() {
   const [stats, setStats] = useState(null);
   const [revenue, setRevenue] = useState(null);
   const [bookings, setBookings] = useState([]);
+  const [refunds, setRefunds] = useState([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
@@ -37,6 +39,7 @@ export default function AdminReports() {
     getBookingStats().then(setStats).catch(console.error);
     getRevenueStats().then(setRevenue).catch(console.error);
     getAllBookings().then(setBookings).catch(console.error);
+    getRefundRequests().then(setRefunds).catch(() => setRefunds([]));
   }, []);
 
   const filtered = useMemo(
@@ -96,8 +99,36 @@ export default function AdminReports() {
       .map(([month, total]) => ({ month, total }));
   }, [revenueBookings]);
 
+  const packageRevenue = useMemo(() => {
+    const totals = {};
+    filtered.forEach((booking) => {
+      const name = booking.packages?.name || "Unknown";
+      const paid = (booking.payments || [])
+        .filter((payment) => payment.status === "verified")
+        .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+      if (!totals[name]) totals[name] = { name, bookings: 0, revenue: 0 };
+      totals[name].bookings += 1;
+      totals[name].revenue += paid;
+    });
+    return Object.values(totals).sort((a, b) => b.revenue - a.revenue);
+  }, [filtered]);
+
+  const completed = filtered.filter((b) => b.status === "completed").length;
   const cancelled = filtered.filter((b) => b.status === "cancelled").length;
+  const outcomeTotal = completed + cancelled;
+  const completionRate = outcomeTotal ? Math.round((completed / outcomeTotal) * 100) : 0;
   const cancelRate = filtered.length ? Math.round((cancelled / filtered.length) * 100) : 0;
+
+  const filteredRefunds = useMemo(
+    () => refunds.filter((item) => inRange(item.created_at?.slice(0, 10), from || null, to || null)),
+    [refunds, from, to]
+  );
+  const refundPending = filteredRefunds.filter((item) => item.status === "pending").length;
+  const refundedCount = filteredRefunds.filter((item) => item.status === "refunded").length;
+  const refundRejected = filteredRefunds.filter((item) => item.status === "rejected").length;
+  const refundedAmount = filteredRefunds
+    .filter((item) => item.status === "refunded")
+    .reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const aov =
     revenueBookings.length > 0
       ? Math.round(
@@ -117,6 +148,19 @@ export default function AdminReports() {
         b.is_walk_in ? "Walk-in" : "Scheduled",
         Number(b.packages?.price || 0) + Number(b.addons_total || 0),
       ]),
+      [],
+      ["Revenue per package", "Bookings", "Verified revenue"],
+      ...packageRevenue.map((row) => [row.name, row.bookings, row.revenue]),
+      [],
+      ["Completed", completed],
+      ["Cancelled", cancelled],
+      ["Completion rate", `${completionRate}%`],
+      ["Cancellation rate", `${cancelRate}%`],
+      [],
+      ["Refunds pending", refundPending],
+      ["Refunds refunded", refundedCount],
+      ["Refunds rejected", refundRejected],
+      ["Refunded amount", refundedAmount],
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -171,6 +215,49 @@ export default function AdminReports() {
           <div className="bg-white rounded-xl border border-[#E8E1DA] p-4">
             <p className="text-sm text-gray-500">Walk-ins</p>
             <p className="text-2xl font-bold text-[#5B4636]">{walkInSplit[1]?.value || 0}</p>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-4 mb-8">
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 lg:col-span-2">
+            <h3 className="font-semibold text-[#5B4636] mb-3">Revenue per package</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-[#E8E1DA]">
+                    <th className="py-2 pr-3">Package</th>
+                    <th className="py-2 pr-3">Bookings</th>
+                    <th className="py-2">Verified revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {packageRevenue.map((row) => (
+                    <tr key={row.name} className="border-b border-[#F8F6F3]">
+                      <td className="py-2.5 pr-3">{row.name}</td>
+                      <td className="py-2.5 pr-3">{row.bookings}</td>
+                      <td className="py-2.5">₱{row.revenue.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {!packageRevenue.length && (
+                    <tr>
+                      <td colSpan={3} className="py-6 text-center text-gray-400">No bookings in this range.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 space-y-4">
+            <div>
+              <h3 className="font-semibold text-[#5B4636]">Completed vs cancelled</h3>
+              <p className="text-sm text-gray-500 mt-2">{completed} completed · {cancelled} cancelled</p>
+              <p className="text-sm text-[#5B4636] mt-1">{completionRate}% of finished bookings were completed</p>
+            </div>
+            <div className="border-t border-[#E8E1DA] pt-4">
+              <h3 className="font-semibold text-[#5B4636]">Refunds</h3>
+              <p className="text-sm text-gray-500 mt-2">{refundPending} pending · {refundedCount} refunded · {refundRejected} rejected</p>
+              <p className="text-sm text-[#5B4636] mt-1">Refunded amount ₱{refundedAmount.toLocaleString()}</p>
+            </div>
           </div>
         </div>
 

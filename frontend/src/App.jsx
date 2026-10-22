@@ -39,6 +39,7 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminAvailability from "./pages/admin/AdminAvailability";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminCancellations from "./pages/admin/AdminCancellations";
+import AdminRefunds from "./pages/admin/AdminRefunds";
 import AdminQrScanner from "./pages/admin/AdminQrScanner";
 import AdminMoodBoardThemes from "./pages/admin/AdminMoodBoardThemes";
 
@@ -100,6 +101,7 @@ function AppRoutes() {
         <Route path="/admin/availability" element={<ProtectedRoute role="admin"><AdminAvailability /></ProtectedRoute>} />
         <Route path="/admin/reports" element={<ProtectedRoute role="admin"><AdminReports /></ProtectedRoute>} />
         <Route path="/admin/cancellations" element={<ProtectedRoute role="admin"><AdminCancellations /></ProtectedRoute>} />
+        <Route path="/admin/refunds" element={<ProtectedRoute role="admin"><AdminRefunds /></ProtectedRoute>} />
         <Route path="/admin/qr-scanner" element={<ProtectedRoute role="admin"><AdminQrScanner /></ProtectedRoute>} />
 
         <Route path="*" element={<NotFound />} />

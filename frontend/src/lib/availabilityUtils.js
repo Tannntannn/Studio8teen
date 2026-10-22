@@ -34,11 +34,6 @@ export function scheduleChipClass(status, { past = false, updating = false } = {
   return `${base} border rounded-xl ${pastCls} ${pop}`.trim();
 }
 
-/** @deprecated use scheduleChipClass */
-export function heatmapCellClass(status, opts) {
-  return scheduleChipClass(status, opts);
-}
-
 function asCount(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -52,11 +47,6 @@ export function getSlotStatus(slot) {
   if (capacity <= 0 || booked >= capacity) return "full";
   if (booked > 0) return "partial";
   return "available";
-}
-
-export function isSlotSelectable(slot) {
-  const status = getSlotStatus(slot);
-  return status === "available" || status === "partial";
 }
 
 /** Derive day status from all slots on that date */
@@ -76,11 +66,6 @@ export function getDayStatus(slotsForDate) {
   if (bookable === 0) return "full";
   if (bookedAny > 0) return "partial";
   return "available";
-}
-
-export function isDaySelectable(slotsForDate) {
-  const status = getDayStatus(slotsForDate);
-  return status === "available" || status === "partial";
 }
 
 export function groupAvailabilityByDate(rows) {

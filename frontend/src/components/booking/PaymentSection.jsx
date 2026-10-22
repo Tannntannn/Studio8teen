@@ -4,7 +4,6 @@ import { createPayment, updatePayment, startPaymongoCheckout, syncPaymongoChecko
 import { uploadToCloudinary, CLOUDINARY_FOLDERS } from "../../lib/cloudinary";
 import { updateBooking } from "../../services/bookings";
 import { getStudioSettings } from "../../services/settings";
-import { CASH_METHOD, isCashMethod } from "../../lib/paymentPlatforms";
 import { RESERVATION_FEE } from "../../lib/constants";
 import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
@@ -25,9 +24,12 @@ export default function PaymentSection({ booking, onUpdate }) {
   const [uploading, setUploading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [proofFile, setProofFile] = useState(null);
+  const [proofPreview, setProofPreview] = useState("");
   const payment = booking.payments?.[0];
   const isWalkIn = Boolean(booking.is_walk_in || isGuest || booking.profiles?.is_guest);
-  const cashSelected = method === "cash" || isCashMethod({ platform: method });
+  const cashSelected = method === "cash";
+  const manualSelected = method === "manual";
 
   useEffect(() => {
     getStudioSettings().then(setSettings).catch(console.error);
@@ -35,7 +37,11 @@ export default function PaymentSection({ booking, onUpdate }) {
 
   useEffect(() => {
     if (payment?.payment_type) setPaymentType(payment.payment_type);
-    if (payment?.notes?.toLowerCase().includes("cash")) setMethod("cash");
+    if (payment?.payment_method === "manual" || payment?.notes?.toLowerCase().includes("studio qr")) {
+      setMethod("manual");
+    } else if (payment?.payment_method === "cash" || payment?.notes?.toLowerCase().includes("cash")) {
+      setMethod("cash");
+    }
   }, [payment]);
 
   useEffect(() => {
@@ -77,7 +83,7 @@ export default function PaymentSection({ booking, onUpdate }) {
             text:
               purpose === "cancellation"
                 ? "Your ₱100 cancellation fee was received. Upload the receipt below so the studio can see it."
-                : "Payment received. Upload your GCash or Maya receipt below so the studio can see it.",
+                : "Payment received. Upload the screenshot below so the studio can verify it.",
             timer: 2800,
             showConfirmButton: false,
           });
@@ -121,6 +127,7 @@ export default function PaymentSection({ booking, onUpdate }) {
       amount,
       status: "awaiting",
       notes: "Paid via Cash (walk-in)",
+      payment_method: "cash",
       proof_image_url: null,
       cloudinary_public_id: null,
     };
@@ -166,6 +173,54 @@ export default function PaymentSection({ booking, onUpdate }) {
     }
   };
 
+  const handleManualSubmit = async () => {
+    if (!settings?.payment_qr_url && !settings?.bank_account_number) {
+      Swal.fire({ icon: "info", title: "Studio payment details are not posted yet" });
+      return;
+    }
+    if (!proofFile && !payment?.proof_image_url) {
+      Swal.fire({ icon: "warning", title: "Screenshot required", text: "Upload a screenshot of the payment." });
+      return;
+    }
+    setUploading(true);
+    try {
+      let proofUrl = payment?.proof_image_url || null;
+      let publicId = payment?.cloudinary_public_id || null;
+      if (proofFile) {
+        const uploaded = await uploadToCloudinary(proofFile, CLOUDINARY_FOLDERS.paymentProof(booking.id));
+        proofUrl = uploaded.url;
+        publicId = uploaded.publicId;
+      }
+      const payload = {
+        payment_type: paymentType,
+        amount,
+        status: "submitted",
+        notes: "Paid via studio QR",
+        payment_method: "manual",
+        proof_image_url: proofUrl,
+        cloudinary_public_id: publicId,
+      };
+      if (payment) await updatePayment(payment.id, payload);
+      else await createPayment({ booking_id: booking.id, ...payload });
+      await updateBooking(booking.id, { status: "payment_submitted" });
+      setProofFile(null);
+      if (proofPreview) URL.revokeObjectURL(proofPreview);
+      setProofPreview("");
+      Swal.fire({
+        icon: "success",
+        title: "Transfer submitted",
+        text: "The studio will verify your payment screenshot.",
+        timer: 2500,
+        showConfirmButton: false,
+      });
+      onUpdate?.();
+    } catch (err) {
+      Swal.fire({ icon: "error", title: "Could not submit transfer", text: err.message });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleConfirmCash = async () => {
     setConfirming(true);
     try {
@@ -179,6 +234,7 @@ export default function PaymentSection({ booking, onUpdate }) {
         amount,
         status: "submitted",
         notes: "Paid via Cash (walk-in)",
+        payment_method: "cash",
       });
       await updateBooking(booking.id, { status: "payment_submitted" });
       Swal.fire({
@@ -221,8 +277,8 @@ export default function PaymentSection({ booking, onUpdate }) {
       });
       Swal.fire({
         icon: "success",
-        title: "Receipt uploaded",
-        text: "The studio can now see your payment receipt.",
+        title: "Screenshot uploaded",
+        text: "The studio can now verify this payment.",
         timer: 2200,
         showConfirmButton: false,
       });
@@ -235,32 +291,57 @@ export default function PaymentSection({ booking, onUpdate }) {
     }
   };
 
+  const chooseProof = (file) => {
+    if (proofPreview) URL.revokeObjectURL(proofPreview);
+    setProofFile(file || null);
+    setProofPreview(file ? URL.createObjectURL(file) : "");
+  };
+
+  const screenshotPicker = (onFile, previewUrl) => (
+    <label className="flex flex-col items-center justify-center gap-3 min-h-[220px] rounded-2xl border-2 border-dashed border-[#A98B75] bg-[#A98B75]/10 px-6 py-8 text-center cursor-pointer hover:bg-[#A98B75]/15">
+      {previewUrl ? (
+        <img src={previewUrl} alt="Selected payment screenshot" className="max-h-56 rounded-xl border border-[#E8E1DA] bg-white object-contain" />
+      ) : (
+        <>
+          <span className="text-lg font-semibold text-[#5B4636]">Upload payment screenshot</span>
+          <span className="max-w-sm text-sm text-gray-600">
+            Tap here and choose the GCash, Maya, or bank receipt photo. The studio uses it to verify this payment.
+          </span>
+        </>
+      )}
+      <span className="inline-flex px-5 py-2.5 rounded-full bg-[#A98B75] text-white text-sm font-semibold">
+        {previewUrl ? "Change screenshot" : "Choose screenshot"}
+      </span>
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={uploading}
+        onChange={(event) => {
+          onFile(event.target.files?.[0] || null);
+          event.target.value = "";
+        }}
+      />
+    </label>
+  );
+
   const receiptBlock = payment?.status === "verified" && (
     <div className="mt-4">
       {payment.proof_image_url ? (
         <div>
-          <p className="text-sm font-semibold text-[#5B4636] mb-2">Payment receipt</p>
+          <p className="text-sm font-semibold text-[#5B4636] mb-2">Payment screenshot</p>
           <img
             src={payment.proof_image_url}
-            alt="Payment receipt"
-            className="max-h-64 rounded-xl border border-[#E8E1DA] object-contain bg-white"
+            alt="Payment screenshot"
+            className="max-h-80 w-full rounded-xl border border-[#E8E1DA] object-contain bg-white"
           />
         </div>
       ) : (
-        <label className="block rounded-2xl border-2 border-dashed border-[#A98B75] bg-white p-5 text-center cursor-pointer hover:bg-[#F8F6F3]">
-          <span className="block text-base font-semibold text-[#5B4636]">Upload your payment receipt</span>
-          <span className="block text-sm text-gray-500 mt-1 mb-3">
-            Choose a GCash or Maya screenshot so the studio can see this payment.
-          </span>
-          <input
-            type="file"
-            accept="image/*"
-            disabled={uploading}
-            onChange={handleReceiptUpload}
-            className="block w-full text-sm text-gray-600 file:mr-4 file:py-2.5 file:px-5 file:rounded-full file:border-0 file:bg-[#A98B75] file:text-white file:font-semibold hover:file:bg-[#8a7260]"
-          />
-          {uploading && <p className="text-sm text-gray-400 mt-2">Uploading...</p>}
-        </label>
+        screenshotPicker(async (file) => {
+          if (!file) return;
+          const input = { target: { files: [file], value: "" } };
+          await handleReceiptUpload(input);
+        }, "")
       )}
     </div>
   );
@@ -268,7 +349,11 @@ export default function PaymentSection({ booking, onUpdate }) {
   if (booking.status === "pending" && payment?.status === "verified") {
     return (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <p className="text-amber-800 font-medium">Payment received. Waiting for the studio to confirm your booking.</p>
+        <p className="text-amber-800 font-medium">
+          {payment.proof_image_url
+            ? "Screenshot sent. Waiting for the studio to confirm your booking."
+            : "Payment received. Upload the screenshot so the studio can verify it."}
+        </p>
         <p className="text-sm text-amber-700 mt-1">
           {payment.payment_type === "downpayment" ? "Downpayment" : "Full payment"}: ₱
           {Number(payment.amount).toLocaleString()} PHP
@@ -307,7 +392,9 @@ export default function PaymentSection({ booking, onUpdate }) {
         <p className="text-sm text-gray-500 mb-4">
           {cashSelected
             ? "Pay in cash at the studio, then confirm so the team can verify your walk-in."
-            : "Pay securely with GCash, Maya, or card. You’ll complete checkout on PayMongo and return here automatically."}
+            : manualSelected
+              ? "Send the payment to the studio account or scan the QR, then upload the screenshot for verification."
+              : "Pay with GCash, Maya, or card. After checkout, upload a screenshot so the studio can verify the payment."}
         </p>
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -315,12 +402,23 @@ export default function PaymentSection({ booking, onUpdate }) {
             type="button"
             onClick={() => setMethod("paymongo")}
             className={`px-3 py-2 rounded-xl border text-sm font-medium transition ${
-              !cashSelected
+              method === "paymongo"
                 ? "border-[#A98B75] bg-[#A98B75]/10 text-[#5B4636]"
                 : "border-[#E8E1DA] text-gray-600 hover:bg-[#F8F6F3]"
             }`}
           >
             GCash / Maya / Card
+          </button>
+          <button
+            type="button"
+            onClick={() => setMethod("manual")}
+            className={`px-3 py-2 rounded-xl border text-sm font-medium transition ${
+              manualSelected
+                ? "border-[#A98B75] bg-[#A98B75]/10 text-[#5B4636]"
+                : "border-[#E8E1DA] text-gray-600 hover:bg-[#F8F6F3]"
+            }`}
+          >
+            Studio QR / bank
           </button>
           {isWalkIn && (
             <button
@@ -332,7 +430,7 @@ export default function PaymentSection({ booking, onUpdate }) {
                   : "border-[#E8E1DA] text-gray-600 hover:bg-[#F8F6F3]"
               }`}
             >
-              {CASH_METHOD.label}
+              Cash
             </button>
           )}
         </div>
@@ -341,9 +439,13 @@ export default function PaymentSection({ booking, onUpdate }) {
           <div className="text-sm text-[#5B4636] bg-[#F8F6F3] border border-[#E8E1DA] rounded-xl px-4 py-3 mb-4">
             Pay in cash at the studio counter. No online checkout required.
           </div>
+        ) : manualSelected ? (
+          <div className="text-sm text-[#5B4636] bg-[#F8F6F3] border border-[#E8E1DA] rounded-xl px-4 py-3 mb-4">
+            Pay the amount due using the account or QR below, then upload a screenshot.
+          </div>
         ) : (
           <div className="text-sm text-[#5B4636] bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-            A ₱{RESERVATION_FEE.toLocaleString()} reservation fee is added on top of your downpayment or full payment. You’ll pay that total on checkout, then the studio confirms your booking.
+            A ₱{RESERVATION_FEE.toLocaleString()} reservation fee is added on top of your downpayment or full payment. After you pay, upload a screenshot for the studio to verify.
           </div>
         )}
       </div>
@@ -384,6 +486,19 @@ export default function PaymentSection({ booking, onUpdate }) {
         </div>
       )}
 
+      {payment?.status === "submitted" && payment.proof_image_url && (
+        <div>
+          <p className="text-sm font-semibold text-[#5B4636] mb-2">Screenshot sent for verification</p>
+          <img
+            src={payment.proof_image_url}
+            alt="Payment screenshot"
+            className="max-h-80 w-full rounded-xl border border-[#E8E1DA] object-contain bg-white"
+          />
+        </div>
+      )}
+
+      {receiptBlock}
+
       {canEdit && (
         <>
           <div>
@@ -418,7 +533,34 @@ export default function PaymentSection({ booking, onUpdate }) {
             </div>
           </div>
 
-          {cashSelected ? (
+          {manualSelected ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-[#E8E1DA] bg-white p-4 text-sm">
+                {settings?.bank_account_name && (
+                  <p className="text-[#5B4636]"><span className="text-gray-500">Account name:</span> {settings.bank_account_name}</p>
+                )}
+                {settings?.bank_account_number && (
+                  <p className="text-[#5B4636] mt-1"><span className="text-gray-500">Account number:</span> {settings.bank_account_number}</p>
+                )}
+                {settings?.payment_qr_url ? (
+                  <img src={settings.payment_qr_url} alt="Studio payment QR" className="mt-3 mx-auto max-h-56 rounded-lg border border-[#E8E1DA]" />
+                ) : (
+                  !settings?.bank_account_number && (
+                    <p className="text-gray-500">The studio has not posted a QR or account number yet.</p>
+                  )
+                )}
+              </div>
+              {screenshotPicker(chooseProof, proofPreview)}
+              <button
+                type="button"
+                onClick={handleManualSubmit}
+                disabled={uploading}
+                className="w-full py-3 rounded-xl bg-[#5B4636] text-white font-semibold hover:bg-[#4a3829] disabled:opacity-50"
+              >
+                {uploading ? "Submitting..." : `Submit payment proof (₱${amount.toLocaleString()} PHP)`}
+              </button>
+            </div>
+          ) : cashSelected ? (
             <button
               type="button"
               onClick={handleSaveCash}

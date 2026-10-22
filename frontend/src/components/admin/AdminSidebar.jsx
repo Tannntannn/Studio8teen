@@ -12,6 +12,7 @@ import {
   FaTh,
   FaSignOutAlt,
   FaTimesCircle,
+  FaUndo,
   FaQrcode,
   FaPalette,
   FaBell,
@@ -33,6 +34,7 @@ const menuItems = [
   { name: "Availability", path: "/admin/availability", icon: FaTh },
   { name: "QR Scanner", path: "/admin/qr-scanner", icon: FaQrcode },
   { name: "Cancellations", path: "/admin/cancellations", icon: FaTimesCircle },
+  { name: "Refunds", path: "/admin/refunds", icon: FaUndo },
   { name: "Reports", path: "/admin/reports", icon: FaChartBar },
   { name: "Settings", path: "/admin/settings", icon: FaCog },
 ];

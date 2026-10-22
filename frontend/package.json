@@ -12,11 +12,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
     "@tailwindcss/vite": "^4.3.0",
-    "axios": "^1.17.0",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.1",
     "qrcode": "^1.5.4",
-    "qrcode.react": "^4.2.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-hook-form": "^7.77.0",

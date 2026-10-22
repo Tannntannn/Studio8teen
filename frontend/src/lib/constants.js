@@ -1,5 +1,7 @@
 export const CANCELLATION_FEE = 100;
 export const RESERVATION_FEE = 150;
+export const GALLERY_PHOTO_LIMIT = 30;
+export const GALLERY_CATEGORIES = ["Prenup", "Ceremony", "Reception", "Studio"];
 export const STUDIO_PHONE = "09062087291";
 export const STUDIO_PHONE_DISPLAY = "0906 208 7291";
 export const STUDIO_EMAIL = "studiobook12@gmail.com";

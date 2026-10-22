@@ -69,14 +69,18 @@ export default function CreateBooking() {
 
   const selectablePackages = useMemo(() => {
     if (isGuest || modeFromUrl === "walk_in") {
-      return packages.filter((p) => p.allows_walk_in);
+      const walkIn = packages.filter((p) => p.allows_walk_in);
+      const events = packages.filter((p) => p.category === "event");
+      const seen = new Set(walkIn.map((p) => p.id));
+      return [...walkIn, ...events.filter((p) => !seen.has(p.id))];
     }
     return packages;
   }, [packages, isGuest, modeFromUrl]);
 
   const selectedPackage = selectablePackages.find((p) => p.id === selectedPackageId)
     || packages.find((p) => p.id === selectedPackageId);
-  const allowsWalkIn = Boolean(selectedPackage?.allows_walk_in);
+  const isEventCoverage = selectedPackage?.category === "event";
+  const allowsWalkIn = Boolean(selectedPackage?.allows_walk_in) && !isEventCoverage;
   const todayIso = useMemo(() => localDateISO(), []);
 
   const basePrice = Number(selectedPackage?.price || 0);
@@ -124,8 +128,12 @@ export default function CreateBooking() {
     getTimeSlots().then(setTimeSlotTimes).catch(() => {});
   }, [packageFromUrl, setValue, isGuest, modeFromUrl]);
 
-  // Guests / walk-in URL stay on walk-in mode. Registered users need package allows_walk_in.
+  // Guests / walk-in URL stay on walk-in mode. Event coverage is never a walk-in.
   useEffect(() => {
+    if (isEventCoverage) {
+      setValue("booking_mode", "scheduled", { shouldValidate: true });
+      return;
+    }
     if (isGuest || modeFromUrl === "walk_in") {
       setValue("booking_mode", "walk_in", { shouldValidate: true });
       return;
@@ -133,7 +141,7 @@ export default function CreateBooking() {
     if (!allowsWalkIn && bookingMode === "walk_in") {
       setValue("booking_mode", "scheduled");
     }
-  }, [isGuest, modeFromUrl, allowsWalkIn, bookingMode, setValue]);
+  }, [isGuest, modeFromUrl, allowsWalkIn, bookingMode, setValue, isEventCoverage]);
 
   // Clear selection if package is no longer in the walk-in-filtered list
   useEffect(() => {
@@ -145,11 +153,12 @@ export default function CreateBooking() {
   }, [isGuest, modeFromUrl, selectablePackages, selectedPackageId, setValue]);
 
   useEffect(() => {
+    if (isEventCoverage) return;
     if (bookingMode === "walk_in" || isGuest) {
       setBookingMonth(todayIso.slice(0, 7));
       setValue("event_date", todayIso, { shouldValidate: true });
     }
-  }, [bookingMode, isGuest, todayIso, setValue]);
+  }, [bookingMode, isGuest, todayIso, setValue, isEventCoverage]);
 
   useEffect(() => {
     const loadMonth = async () => {
@@ -172,10 +181,11 @@ export default function CreateBooking() {
   }, [bookingMonth]);
 
   useEffect(() => {
+    if (isEventCoverage) return;
     setValue("time_slot", "");
-  }, [selectedDate, setValue]);
+  }, [selectedDate, setValue, isEventCoverage]);
 
-  const sameDayOnly = isGuest || bookingMode === "walk_in";
+  const sameDayOnly = !isEventCoverage && (isGuest || bookingMode === "walk_in");
 
   const handleSelectDate = (date) => {
     if (sameDayOnly && date !== todayIso) {
@@ -192,6 +202,10 @@ export default function CreateBooking() {
     if (date.slice(0, 7) !== bookingMonth) setBookingMonth(date.slice(0, 7));
   };
 
+  useEffect(() => {
+    if (isEventCoverage) setSelectedAddons([]);
+  }, [isEventCoverage]);
+
   const toggleAddon = (name) => {
     setSelectedAddons((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
@@ -200,11 +214,18 @@ export default function CreateBooking() {
 
   const onSubmit = async (data) => {
     if (!user) return;
-    if (!data.event_date || !data.time_slot) {
-      Swal.fire({ icon: "warning", title: "Select date and time", text: "Pick an open date and available time slot." });
+    const eventBooking = packages.find((p) => p.id === data.package_id)?.category === "event";
+    if (!data.event_date || !String(data.time_slot || "").trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: eventBooking ? "Add the event date and start time" : "Select date and time",
+        text: eventBooking
+          ? "Choose the event date and type the time coverage should start."
+          : "Pick an open date and available time slot.",
+      });
       return;
     }
-    const isWalkIn = Boolean(isGuest || data.booking_mode === "walk_in");
+    const isWalkIn = !eventBooking && Boolean(isGuest || data.booking_mode === "walk_in");
     if (isWalkIn && data.event_date !== todayIso) {
       Swal.fire({ icon: "warning", title: "Walk-in must be today", text: "Same-day slots only for walk-in bookings." });
       return;
@@ -221,12 +242,14 @@ export default function CreateBooking() {
 
     setLoading(true);
     try {
-      const available = await isSlotBookable(data.event_date, data.time_slot);
-      if (!available) {
-        throw new Error("That time slot is fully booked or closed. Please choose another.");
+      if (!eventBooking) {
+        const available = await isSlotBookable(data.event_date, data.time_slot);
+        if (!available) {
+          throw new Error("That time slot is fully booked or closed. Please choose another.");
+        }
       }
 
-      const addonRows = selectedAddons.map((name) => {
+      const addonRows = eventBooking ? [] : selectedAddons.map((name) => {
         const a = ADDONS_CATALOG.find((x) => x.name === name);
         return { name, price: a?.price || 0 };
       });
@@ -251,13 +274,13 @@ export default function CreateBooking() {
         client_id: user.id,
         package_id: data.package_id,
         event_date: data.event_date,
-        time_slot: data.time_slot,
+        time_slot: eventBooking ? String(data.time_slot).trim() : data.time_slot,
         location: data.location,
         notes: data.notes || "",
         contact_number: data.contact_number,
         client_address: data.client_address,
         selected_addons: addonRows,
-        addons_total: addonsTotal,
+        addons_total: eventBooking ? 0 : addonsTotal,
         is_walk_in: isWalkIn,
         ...(isWalkIn
           ? {
@@ -274,8 +297,10 @@ export default function CreateBooking() {
 
       Swal.fire({
         icon: "success",
-        title: isWalkIn ? "Walk-in request submitted" : "Booking submitted",
-        text: isWalkIn
+        title: eventBooking ? "Event coverage requested" : isWalkIn ? "Walk-in request submitted" : "Booking submitted",
+        text: eventBooking
+          ? "Your event date and start time are saved. Continue to payment so the studio can confirm coverage."
+          : isWalkIn
           ? "The studio will confirm your walk-in after reviewing your details and payment."
           : "Upload payment proof next so the studio can confirm your booking.",
         timer: 2800,
@@ -298,10 +323,16 @@ export default function CreateBooking() {
       <div className="max-w-6xl mx-auto w-full">
         <div className="mb-8 text-center">
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">
-            {isGuest || modeFromUrl === "walk_in" ? "Book a Walk-in" : "Book a Session"}
+            {isEventCoverage
+              ? "Book Event Coverage"
+              : isGuest || modeFromUrl === "walk_in"
+                ? "Book a Walk-in"
+                : "Book a Session"}
           </h1>
           <p className="mt-2 text-gray-500">
-            {isGuest || modeFromUrl === "walk_in"
+            {isEventCoverage
+              ? "Choose an event package, set the venue, date, and start time, then continue to payment."
+              : isGuest || modeFromUrl === "walk_in"
               ? "Only packages with walk-in enabled are listed. Same-day slots only — create a password later to return."
               : "Choose a package, pick an available date & time, then confirm your details."}
           </p>
@@ -328,7 +359,7 @@ export default function CreateBooking() {
                   {selectablePackages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id}>
                       {pkg.name} — ₱{Number(pkg.price).toLocaleString()}
-                      {pkg.allows_walk_in ? " · Walk-in OK" : ""}
+                      {pkg.category === "event" ? " · Event coverage" : pkg.allows_walk_in ? " · Walk-in OK" : ""}
                     </option>
                   ))}
                 </select>
@@ -376,7 +407,7 @@ export default function CreateBooking() {
               </div>
             )}
 
-            {(isGuest || allowsWalkIn) && (
+            {!isEventCoverage && (isGuest || allowsWalkIn) && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Booking type</p>
                 {isGuest ? (
@@ -452,8 +483,14 @@ export default function CreateBooking() {
               </div>
             )}
             <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Event Location</label>
-              <input {...register("location", { required: "Enter location" })} placeholder="Studio or outdoor location" className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]" />
+              <label className="block mb-2 text-sm font-medium text-gray-700">
+                {isEventCoverage ? "Venue" : "Event Location"}
+              </label>
+              <input
+                {...register("location", { required: isEventCoverage ? "Enter the venue" : "Enter location" })}
+                placeholder={isEventCoverage ? "Church, reception, or event venue" : "Studio or outdoor location"}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+              />
               {errors.location && <p className="text-red-500 text-xs mt-1">{errors.location.message}</p>}
             </div>
             <div>
@@ -484,16 +521,50 @@ export default function CreateBooking() {
               {errors.client_address && <p className="text-red-500 text-xs mt-1">{errors.client_address.message}</p>}
             </div>
             <div>
-              <label className="block mb-2 text-sm font-medium text-gray-700">Session notes / preferences</label>
-              <textarea rows={3} {...register("notes")} placeholder="Tell us about your vibe, outfit ideas, or special requests..." className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]" />
+              <label className="block mb-2 text-sm font-medium text-gray-700">
+                {isEventCoverage ? "Coverage notes" : "Session notes / preferences"}
+              </label>
+              <textarea
+                rows={3}
+                {...register("notes")}
+                placeholder={
+                  isEventCoverage
+                    ? "Call time, program flow, or anything the coverage team should know..."
+                    : "Tell us about your vibe, outfit ideas, or special requests..."
+                }
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 resize-none outline-none focus:border-[#A98B75]"
+              />
             </div>
           </div>
 
-          {/* DentaBase-style calendar + details panel */}
           <div>
             <h2 className="font-semibold text-[#5B4636] text-lg mb-3">
-              {isGuest || bookingMode === "walk_in" ? "3. Schedule (today)" : "3. Schedule"}
+              {isEventCoverage ? "3. Event schedule" : isGuest || bookingMode === "walk_in" ? "3. Schedule (today)" : "3. Schedule"}
             </h2>
+            {isEventCoverage ? (
+              <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 md:p-6 shadow-sm grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block mb-2 text-sm font-medium text-gray-700">Event date</label>
+                  <input
+                    type="date"
+                    {...register("event_date", { required: "Select the event date" })}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+                  />
+                  {errors.event_date && <p className="text-red-500 text-xs mt-1">{errors.event_date.message}</p>}
+                </div>
+                <div>
+                  <label className="block mb-2 text-sm font-medium text-gray-700">Start time</label>
+                  <input
+                    type="text"
+                    {...register("time_slot", { required: "Enter the start time" })}
+                    placeholder="2:00 PM"
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 outline-none focus:border-[#A98B75]"
+                  />
+                  {errors.time_slot && <p className="text-red-500 text-xs mt-1">{errors.time_slot.message}</p>}
+                  <p className="text-xs text-gray-400 mt-2">This is when coverage starts. It does not use a studio time slot.</p>
+                </div>
+              </div>
+            ) : (
             <div className="grid lg:grid-cols-2 gap-5">
               <div className="bg-white rounded-2xl border border-[#E8E1DA] p-5 md:p-6 shadow-sm">
                 <input type="hidden" {...register("event_date", { required: "Select a date" })} />
@@ -547,8 +618,10 @@ export default function CreateBooking() {
                 )}
               </div>
             </div>
+            )}
           </div>
 
+          {!isEventCoverage && (
           <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6 shadow-sm">
             <h2 className="font-semibold text-[#5B4636] mb-4">4. Add-ons (optional)</h2>
             <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
@@ -573,6 +646,7 @@ export default function CreateBooking() {
               ))}
             </div>
           </div>
+          )}
 
           <div className="bg-[#5B4636] text-white rounded-2xl p-6 shadow-sm">
             <h2 className="font-semibold mb-4">Booking summary</h2>

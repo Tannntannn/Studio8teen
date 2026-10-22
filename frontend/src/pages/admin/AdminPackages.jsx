@@ -20,6 +20,7 @@ const EMPTY_FORM = {
   features: "",
   is_popular: false,
   allows_walk_in: false,
+  is_active: true,
   image_url: "",
   image_public_id: "",
 };
@@ -30,10 +31,10 @@ export default function AdminPackages() {
   const [filter, setFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [imageBusyId, setImageBusyId] = useState(null);
 
   const load = () => getAllPackages().then(setPackages).catch(console.error);
 
@@ -69,16 +70,6 @@ export default function AdminPackages() {
     }
   };
 
-  const toggleActive = async (pkg) => {
-    await updatePackage(pkg.id, { is_active: !pkg.is_active });
-    load();
-  };
-
-  const toggleWalkIn = async (pkg) => {
-    await updatePackage(pkg.id, { allows_walk_in: !pkg.allows_walk_in });
-    load();
-  };
-
   const uploadFormImage = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -94,61 +85,79 @@ export default function AdminPackages() {
     }
   };
 
-  const uploadPackageImage = async (pkg, e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageBusyId(pkg.id);
-    try {
-      const { url, publicId } = await uploadToCloudinary(file, CLOUDINARY_FOLDERS.packages);
-      await updatePackage(pkg.id, { image_url: url, image_public_id: publicId });
-      await load();
-      Swal.fire({ icon: "success", title: "Package image updated", timer: 1200, showConfirmButton: false });
-    } catch (err) {
-      Swal.fire({ icon: "error", title: "Image upload failed", text: err.message });
-    } finally {
-      setImageBusyId(null);
-      e.target.value = "";
-    }
+  const closeForm = () => {
+    if (saving) return;
+    setForm(EMPTY_FORM);
+    setEditingId(null);
+    setShowForm(false);
   };
 
-  const removePackageImage = async (pkg) => {
-    setImageBusyId(pkg.id);
-    try {
-      await updatePackage(pkg.id, { image_url: null, image_public_id: null });
-      await load();
-    } catch (err) {
-      Swal.fire({ icon: "error", title: "Could not remove image", text: err.message });
-    } finally {
-      setImageBusyId(null);
-    }
+  useEffect(() => {
+    if (!showForm) return undefined;
+    const onKey = (event) => {
+      if (event.key === "Escape") closeForm();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [showForm, saving]);
+
+  const startEdit = (pkg) => {
+    setEditingId(pkg.id);
+    setShowForm(true);
+    setForm({
+      name: pkg.name || "",
+      price: pkg.price ?? "",
+      category: pkg.category || "studio",
+      description: pkg.description || "",
+      features: (Array.isArray(pkg.features) ? pkg.features : []).join("\n"),
+      is_popular: Boolean(pkg.is_popular),
+      allows_walk_in: Boolean(pkg.allows_walk_in),
+      is_active: Boolean(pkg.is_active),
+      image_url: pkg.image_url || "",
+      image_public_id: pkg.image_public_id || "",
+    });
   };
 
-  const handleCreate = async (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.price) return;
+    if (!form.name.trim() || form.price === "") return;
     setSaving(true);
+    const payload = {
+      name: form.name.trim(),
+      price: Number(form.price),
+      category: form.category,
+      description: form.description.trim(),
+      features: form.features
+        .split("\n")
+        .map((f) => f.trim())
+        .filter(Boolean),
+      is_popular: form.is_popular,
+      allows_walk_in: form.allows_walk_in,
+      is_active: form.is_active,
+      image_url: form.image_url || null,
+      image_public_id: form.image_public_id || null,
+    };
     try {
-      await createPackage({
-        name: form.name.trim(),
-        price: Number(form.price),
-        category: form.category,
-        description: form.description.trim(),
-        features: form.features
-          .split("\n")
-          .map((f) => f.trim())
-          .filter(Boolean),
-        is_active: true,
-        is_popular: form.is_popular,
-        allows_walk_in: form.allows_walk_in,
-        image_url: form.image_url || null,
-        image_public_id: form.image_public_id || null,
-      });
-      setForm(EMPTY_FORM);
-      setShowForm(false);
+      if (editingId) {
+        await updatePackage(editingId, { ...payload, catalog_locked: true });
+      } else {
+        await createPackage({ ...payload, is_active: true, catalog_locked: true });
+      }
+      closeForm();
       await load();
-      Swal.fire({ icon: "success", title: "Package added", timer: 1500, showConfirmButton: false });
+      Swal.fire({
+        icon: "success",
+        title: editingId ? "Package updated" : "Package added",
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch (err) {
-      Swal.fire({ icon: "error", title: "Could not add package", text: err.message });
+      Swal.fire({ icon: "error", title: "Could not save package", text: err.message });
     } finally {
       setSaving(false);
     }
@@ -191,10 +200,14 @@ export default function AdminPackages() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setShowForm((v) => !v)}
+              onClick={() => {
+                setEditingId(null);
+                setForm(EMPTY_FORM);
+                setShowForm(true);
+              }}
               className="px-4 py-2 rounded-xl bg-[#5B4636] text-white text-sm"
             >
-              {showForm ? "Close form" : "Add package"}
+              Add package
             </button>
             <button
               type="button"
@@ -208,90 +221,147 @@ export default function AdminPackages() {
         </div>
 
         {showForm && (
-          <form onSubmit={handleCreate} className="bg-white rounded-2xl border border-[#E8E1DA] p-6 mb-6 grid gap-4 md:grid-cols-2">
-            <input
-              required
-              placeholder="Package name"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="border rounded-xl px-3 py-2 text-sm"
-            />
-            <input
-              required
-              type="number"
-              min="0"
-              placeholder="Price (₱)"
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: e.target.value })}
-              className="border rounded-xl px-3 py-2 text-sm"
-            />
-            <select
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="border rounded-xl px-3 py-2 text-sm"
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#5B4636]/40 backdrop-blur-sm"
+            onClick={closeForm}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="package-editor-title"
+          >
+            <form
+              onSubmit={handleSave}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-[#E8E1DA] shadow-2xl"
             >
-              {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
-              ))}
-            </select>
-            <input
-              placeholder="Short description"
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="border rounded-xl px-3 py-2 text-sm"
-            />
-            <textarea
-              placeholder="Features (one per line)"
-              value={form.features}
-              onChange={(e) => setForm({ ...form, features: e.target.value })}
-              className="border rounded-xl px-3 py-2 text-sm md:col-span-2 min-h-[100px]"
-            />
-            <div className="md:col-span-2 flex flex-wrap items-center gap-4">
-              {form.image_url ? (
-                <div className="relative w-28 h-28 rounded-xl overflow-hidden border border-[#E8E1DA]">
-                  <img src={getThumbnailUrl(form.image_url, 200, 200)} alt="Package preview" className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, image_url: "", image_public_id: "" }))}
-                    className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white"
+              <div className="px-6 pt-6 pb-4 border-b border-[#E8E1DA]">
+                <h2 id="package-editor-title" className="heading-serif text-2xl font-bold text-[#5B4636]">
+                  {editingId ? "Edit package" : "Add package"}
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Change the name, price, photo, description, and inclusions, then save.
+                </p>
+              </div>
+              <div className="p-6 grid gap-4">
+                <label className="block text-sm text-[#5B4636]">
+                  Package name
+                  <input
+                    required
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#A98B75]"
+                  />
+                </label>
+                <label className="block text-sm text-[#5B4636]">
+                  Price (₱)
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    value={form.price}
+                    onChange={(e) => setForm({ ...form, price: e.target.value })}
+                    className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#A98B75]"
+                  />
+                </label>
+                <label className="block text-sm text-[#5B4636]">
+                  Category
+                  <select
+                    value={form.category}
+                    onChange={(e) => setForm({ ...form, category: e.target.value })}
+                    className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#A98B75]"
                   >
-                    Remove
-                  </button>
+                    {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm text-[#5B4636]">
+                  Short description
+                  <input
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#A98B75]"
+                  />
+                </label>
+                <label className="block text-sm text-[#5B4636]">
+                  Inclusions
+                  <textarea
+                    value={form.features}
+                    onChange={(e) => setForm({ ...form, features: e.target.value })}
+                    placeholder="One inclusion per line"
+                    className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm min-h-[110px] outline-none focus:border-[#A98B75]"
+                  />
+                </label>
+                <div>
+                  <p className="text-sm text-[#5B4636] mb-2">Package photo</p>
+                  <div className="flex flex-wrap items-center gap-4">
+                    {form.image_url ? (
+                      <div className="relative w-28 h-28 rounded-xl overflow-hidden border border-[#E8E1DA]">
+                        <img src={getThumbnailUrl(form.image_url, 200, 200)} alt="Package preview" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => setForm((current) => ({ ...current, image_url: "", image_public_id: "" }))}
+                          className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-28 h-28 rounded-xl border border-dashed border-[#E8E1DA] bg-[#F8F6F3] flex items-center justify-center text-xs text-gray-400">
+                        No image
+                      </div>
+                    )}
+                    <label className="px-4 py-2 rounded-xl bg-[#5B4636] text-white text-sm cursor-pointer hover:bg-[#4a3829]">
+                      {uploadingImage ? "Uploading..." : form.image_url ? "Change photo" : "Upload photo"}
+                      <input type="file" accept="image/*" className="hidden" onChange={uploadFormImage} disabled={uploadingImage} />
+                    </label>
+                  </div>
                 </div>
-              ) : (
-                <div className="w-28 h-28 rounded-xl border border-dashed border-[#E8E1DA] bg-[#F8F6F3] flex items-center justify-center text-xs text-gray-400">
-                  No image
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-600 rounded-xl border border-[#E8E1DA] px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={form.is_popular}
+                      onChange={(e) => setForm({ ...form, is_popular: e.target.checked })}
+                    />
+                    Mark as popular
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-600 rounded-xl border border-[#E8E1DA] px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={form.allows_walk_in}
+                      onChange={(e) => setForm({ ...form, allows_walk_in: e.target.checked })}
+                    />
+                    Allow walk-ins
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-600 rounded-xl border border-[#E8E1DA] px-3 py-2.5 sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={form.is_active}
+                      onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                    />
+                    Package is active
+                  </label>
                 </div>
-              )}
-              <label className="px-4 py-2 rounded-xl bg-[#5B4636] text-white text-sm cursor-pointer hover:bg-[#4a3829]">
-                {uploadingImage ? "Uploading..." : "Upload package image"}
-                <input type="file" accept="image/*" className="hidden" onChange={uploadFormImage} disabled={uploadingImage} />
-              </label>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={form.is_popular}
-                onChange={(e) => setForm({ ...form, is_popular: e.target.checked })}
-              />
-              Mark as popular
-            </label>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={form.allows_walk_in}
-                onChange={(e) => setForm({ ...form, allows_walk_in: e.target.checked })}
-              />
-              Allow same-day walk-ins
-            </label>
-            <button
-              type="submit"
-              disabled={saving}
-              className="md:col-span-2 px-4 py-2 rounded-xl bg-[#A98B75] text-white text-sm disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save package"}
-            </button>
-          </form>
+              </div>
+              <div className="flex gap-3 px-6 py-4 bg-[#F8F6F3] border-t border-[#E8E1DA] sticky bottom-0">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  disabled={saving}
+                  className="flex-1 py-2.5 rounded-xl border border-[#E8E1DA] bg-white text-[#5B4636] text-sm font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || uploadingImage}
+                  className="flex-1 py-2.5 rounded-xl bg-[#A98B75] text-white text-sm font-medium disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save package"}
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2 mb-4">
@@ -375,31 +445,12 @@ export default function AdminPackages() {
                   ))}
                 </ul>
                 <div className="flex flex-wrap gap-3 items-center">
-                  <label className="text-xs text-[#5B4636] font-medium cursor-pointer hover:underline">
-                    {imageBusyId === pkg.id ? "Uploading..." : pkg.image_url ? "Change image" : "Add image"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={imageBusyId === pkg.id}
-                      onChange={(e) => uploadPackageImage(pkg, e)}
-                    />
-                  </label>
-                  {pkg.image_url && (
-                    <button
-                      type="button"
-                      onClick={() => removePackageImage(pkg)}
-                      disabled={imageBusyId === pkg.id}
-                      className="text-xs text-gray-500 hover:text-red-500"
-                    >
-                      Remove image
-                    </button>
-                  )}
-                  <button type="button" onClick={() => toggleActive(pkg)} className="text-xs text-[#A98B75] font-medium">
-                    {pkg.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                  <button type="button" onClick={() => toggleWalkIn(pkg)} className="text-xs text-sky-700 font-medium">
-                    {pkg.allows_walk_in ? "Disable walk-in" : "Enable walk-in"}
+                  <button
+                    type="button"
+                    onClick={() => startEdit(pkg)}
+                    className="px-4 py-2 rounded-xl bg-[#5B4636] text-white text-sm font-medium hover:bg-[#4a3829]"
+                  >
+                    Edit
                   </button>
                   <button type="button" onClick={() => handleDelete(pkg)} className="text-xs text-red-500">
                     Remove

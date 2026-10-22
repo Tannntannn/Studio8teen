@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import AdminLayout from "../../components/layout/AdminLayout";
 import AvailabilityHeatmap from "../../components/admin/AvailabilityHeatmap";
-import ClientPreparationOverview from "../../components/admin/ClientPreparationOverview";
 import PendingVerifications from "../../components/admin/PendingVerifications";
 import PaidBookingApprovals from "../../components/admin/PaidBookingApprovals";
 import ActivityLogList from "../../components/admin/ActivityLogList";
@@ -44,8 +43,7 @@ export default function AdminDashboard() {
           <ActivityLogList />
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-          <ClientPreparationOverview />
+        <div className="mb-8">
           <PendingVerifications />
         </div>
 
