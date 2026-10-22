@@ -1,6 +1,5 @@
 import { supabase } from "../lib/supabase";
 import { subscribeTableChanges } from "../lib/realtime";
-import { CANCELLATION_FEE } from "../lib/constants";
 import { createNotification } from "./notifications";
 import { syncAvailabilitySlot } from "./settings";
 import { normalizeAffectedBooking, notifyAffectedClients } from "./scheduleNotifications";
@@ -113,35 +112,6 @@ export async function updateBooking(id, updates) {
   return data;
 }
 
-export async function requestCancellation(id, reason, feeAmount = CANCELLATION_FEE) {
-  const { data: booking, error: fetchError } = await supabase
-    .from("bookings")
-    .select("id, status")
-    .eq("id", id)
-    .maybeSingle();
-  if (fetchError) throw fetchError;
-  if (!booking) throw new Error("Booking not found");
-  if (booking.status !== "confirmed") {
-    throw new Error("Only confirmed bookings require a cancellation fee request.");
-  }
-
-  const { error: insertError } = await supabase.from("cancellations").insert({
-    booking_id: id,
-    reason,
-    fee_amount: feeAmount,
-    fee_status: "awaiting",
-    refund_status: "na",
-  });
-  if (insertError) throw insertError;
-
-  const { error: bookingError } = await supabase
-    .from("bookings")
-    .update({ status: "cancellation_pending", updated_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("status", "confirmed");
-  if (bookingError) throw bookingError;
-}
-
 async function releaseBookingSlot(eventDate, timeSlot) {
   if (!eventDate || !timeSlot) return;
   try {
@@ -151,8 +121,17 @@ async function releaseBookingSlot(eventDate, timeSlot) {
   }
 }
 
-/** Cancel before admin approval — no fee required. */
-export async function cancelBookingFree(id, reason = "Cancelled by client before approval") {
+const CANCELLABLE_STATUSES = [
+  "awaiting_payment",
+  "payment_submitted",
+  "pending",
+  "confirmed",
+  "cancellation_pending",
+  "cancellation_submitted",
+];
+
+/** Cancel a booking immediately. There is no cancellation fee. */
+export async function cancelBookingFree(id, reason = "Cancelled by client") {
   const { data: booking, error: fetchError } = await supabase
     .from("bookings")
     .select("event_date, time_slot, status")
@@ -160,20 +139,48 @@ export async function cancelBookingFree(id, reason = "Cancelled by client before
     .maybeSingle();
   if (fetchError) throw fetchError;
   if (!booking) throw new Error("Booking not found");
-
-  const freeStatuses = ["awaiting_payment", "payment_submitted", "pending"];
-  if (!freeStatuses.includes(booking.status)) {
-    throw new Error("This booking requires the cancellation fee flow.");
+  if (booking.status === "cancelled") return;
+  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+    throw new Error("This booking can no longer be cancelled.");
   }
 
   const { error } = await supabase
     .from("bookings")
     .update({ status: "cancelled", notes: reason, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .in("status", freeStatuses);
+    .in("status", CANCELLABLE_STATUSES);
   if (error) throw error;
 
   await releaseBookingSlot(booking.event_date, booking.time_slot);
+}
+
+/** Approving a refund cancels the session so it is no longer waiting for confirmation. */
+export async function cancelBookingForRefund(bookingId) {
+  const { data: booking, error: fetchError } = await supabase
+    .from("bookings")
+    .select("id, client_id, event_date, time_slot, status, notes, packages(name)")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (fetchError) throw fetchError;
+  if (!booking || booking.status === "cancelled") return;
+
+  const reason = "Refund approved. Your booking is cancelled, and the studio will return the payment separately.";
+  const notes = booking.notes ? `${booking.notes}\n${reason}` : reason;
+  const { error } = await supabase
+    .from("bookings")
+    .update({ status: "cancelled", notes, updated_at: new Date().toISOString() })
+    .eq("id", bookingId)
+    .neq("status", "cancelled");
+  if (error) throw error;
+
+  await releaseBookingSlot(booking.event_date, booking.time_slot);
+
+  const [withProfile] = await attachProfiles([{ ...booking, status: "cancelled" }]);
+  void notifyAffectedClients(
+    [normalizeAffectedBooking(withProfile, "cancelled")],
+    reason,
+    { action: "cancelled", createInApp: false }
+  );
 }
 
 /** Admin rejects a booking entirely. */
@@ -283,30 +290,6 @@ export async function getClientBookings(clientId) {
   return data || [];
 }
 
-export async function saveCancellationFeeProof(bookingId, cancellationId, proofUrl, publicId, options = {}) {
-  const updates = {
-    fee_proof_url: proofUrl,
-    fee_proof_public_id: publicId,
-  };
-  if (!options.keepStatus) updates.fee_status = "awaiting";
-  const { error } = await supabase.from("cancellations").update(updates).eq("id", cancellationId);
-  if (error) throw error;
-}
-
-export async function confirmCancellationFeeProof(bookingId, cancellationId) {
-  const { error: cancelError } = await supabase
-    .from("cancellations")
-    .update({ fee_status: "submitted" })
-    .eq("id", cancellationId);
-  if (cancelError) throw cancelError;
-
-  const { error: bookingError } = await supabase
-    .from("bookings")
-    .update({ status: "cancellation_submitted" })
-    .eq("id", bookingId);
-  if (bookingError) throw bookingError;
-}
-
 export async function deleteBooking(id) {
   const { data: booking, error: fetchError } = await supabase
     .from("bookings")
@@ -348,7 +331,24 @@ export async function getPaidAwaitingConfirmation() {
   const paid = (data || []).filter((b) =>
     (b.payments || []).some((p) => p.status === "verified")
   );
-  return attachProfiles(paid);
+  if (!paid.length) return [];
+
+  const { data: refunds, error: refundError } = await supabase
+    .from("refund_requests")
+    .select("booking_id")
+    .in("booking_id", paid.map((b) => b.id))
+    .eq("status", "refunded");
+  if (refundError) throw refundError;
+  const refundedIds = new Set((refunds || []).map((row) => row.booking_id));
+  const waiting = [];
+  for (const booking of paid) {
+    if (refundedIds.has(booking.id)) {
+      await cancelBookingForRefund(booking.id);
+    } else {
+      waiting.push(booking);
+    }
+  }
+  return attachProfiles(waiting);
 }
 
 export async function confirmPaidBooking(id) {
@@ -363,6 +363,13 @@ export async function confirmPaidBooking(id) {
   if (booking.status !== "pending") {
     throw new Error("This booking is not waiting for confirmation.");
   }
+  const { data: refund } = await supabase
+    .from("refund_requests")
+    .select("id")
+    .eq("booking_id", id)
+    .eq("status", "refunded")
+    .maybeSingle();
+  if (refund) throw new Error("This booking was refunded and cannot be confirmed.");
   const paid = (booking.payments || []).some((p) => p.status === "verified");
   if (!paid) throw new Error("This booking is not paid yet.");
 

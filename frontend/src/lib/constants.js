@@ -1,4 +1,3 @@
-export const CANCELLATION_FEE = 100;
 export const RESERVATION_FEE = 150;
 export const GALLERY_PHOTO_LIMIT = 30;
 export const GALLERY_CATEGORIES = ["Prenup", "Ceremony", "Reception", "Studio"];

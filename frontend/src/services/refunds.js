@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { cancelBookingForRefund } from "./bookings";
 
 export async function getRefundForBooking(bookingId) {
   const { data, error } = await supabase
@@ -12,7 +13,15 @@ export async function getRefundForBooking(bookingId) {
   return data;
 }
 
-export async function createRefundRequest({ bookingId, clientId, amount, reason }) {
+export async function createRefundRequest({
+  bookingId,
+  clientId,
+  amount,
+  reason,
+  payoutMethod,
+  accountName,
+  accountNumber,
+}) {
   const { data, error } = await supabase
     .from("refund_requests")
     .insert({
@@ -21,6 +30,9 @@ export async function createRefundRequest({ bookingId, clientId, amount, reason 
       amount,
       reason,
       status: "pending",
+      payout_method: payoutMethod,
+      payout_account_name: accountName,
+      payout_account_number: accountNumber,
     })
     .select()
     .single();
@@ -52,6 +64,16 @@ export async function getRefundRequests() {
 }
 
 export async function reviewRefundRequest(id, { status, adminNote, reviewedBy }) {
+  if (status === "refunded") {
+    const { data: existing, error: existingError } = await supabase
+      .from("refund_requests")
+      .select("booking_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (existingError) throw existingError;
+    if (existing?.booking_id) await cancelBookingForRefund(existing.booking_id);
+  }
+
   const { data, error } = await supabase
     .from("refund_requests")
     .update({

@@ -9,6 +9,12 @@ const STATUS_LABEL = {
   rejected: "Rejected",
 };
 
+const METHOD_LABEL = {
+  gcash: "GCash",
+  maya: "Maya",
+  bank: "Bank",
+};
+
 export default function AdminRefunds() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
@@ -45,7 +51,7 @@ export default function AdminRefunds() {
         <div className="mb-8">
           <h1 className="heading-serif text-4xl font-bold text-[#5B4636]">Refunds</h1>
           <p className="text-gray-500 mt-2">
-            Approve after you send the money back yourself. This does not refund PayMongo and does not replace the ₱100 cancellation fee.
+            Send the amount to the GCash, Maya, or bank account on the request, then mark it refunded. That cancels the booking and notifies the client.
           </p>
         </div>
         {items.length === 0 ? (
@@ -65,6 +71,13 @@ export default function AdminRefunds() {
                       {item.bookings?.event_date || "No date"} · ₱{Number(item.amount).toLocaleString()}
                     </p>
                     <p className="text-sm text-gray-700 mt-2">{item.reason}</p>
+                    <div className="mt-3 rounded-xl bg-[#F8F6F3] px-3 py-2 text-sm text-[#5B4636]">
+                      <p className="font-medium">
+                        Send to {METHOD_LABEL[item.payout_method] || "the account below"}
+                      </p>
+                      <p className="mt-1">{item.payout_account_name || "No account name"}</p>
+                      <p className="font-mono">{item.payout_account_number || "No account number"}</p>
+                    </div>
                     {item.admin_note && <p className="text-sm text-gray-500 mt-2">Note: {item.admin_note}</p>}
                   </div>
                   <span className="text-xs font-medium px-2 py-1 rounded-full bg-[#F8F6F3] text-[#5B4636] h-fit">

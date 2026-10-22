@@ -6,11 +6,9 @@ import QRCode from "qrcode";
 import ClientLayout from "../../components/layout/ClientLayout";
 import PaymentSection from "../../components/booking/PaymentSection";
 import RefundRequestSection from "../../components/booking/RefundRequestSection";
-import CancellationFeeSection from "../../components/booking/CancellationFeeSection";
 import { useAuth } from "../../context/AuthContext";
-import { getBooking, requestCancellation, cancelBookingFree } from "../../services/bookings";
+import { getBooking, cancelBookingFree } from "../../services/bookings";
 import { downloadBookingReceipt, downloadBookingQr, bookingHasQr } from "../../lib/bookingReceipt";
-import { CANCELLATION_FEE } from "../../lib/constants";
 import { formatTime12h } from "../../lib/dateUtils";
 
 const CANCEL_REASONS = [
@@ -60,22 +58,10 @@ export default function BookingDetail() {
       Swal.fire({ icon: "warning", title: "Type your reason", text: "Others needs a short explanation." });
       return;
     }
-    const needsFee = booking.status === "confirmed";
     setCancelling(true);
     try {
-      if (!needsFee) {
-        await cancelBookingFree(id, reason);
-        Swal.fire({ icon: "success", title: "Booking cancelled", timer: 2000, showConfirmButton: false });
-      } else {
-        await requestCancellation(id, reason);
-        Swal.fire({
-          icon: "info",
-          title: "Cancellation requested",
-          text: "Pay the ₱100 cancellation fee, then upload your receipt below.",
-          timer: 3000,
-          showConfirmButton: false,
-        });
-      }
+      await cancelBookingFree(id, reason);
+      Swal.fire({ icon: "success", title: "Booking cancelled", timer: 2000, showConfirmButton: false });
       setCancelOpen(false);
       load();
     } catch (err) {
@@ -129,7 +115,6 @@ export default function BookingDetail() {
     );
   }
 
-  const cancellation = booking.cancellations?.[0];
   const inCancellationFlow = ["cancellation_pending", "cancellation_submitted"].includes(booking.status);
 
   return (
@@ -163,9 +148,11 @@ export default function BookingDetail() {
         </div>
 
         <div className="space-y-6">
-          {inCancellationFlow && cancellation && (
-            <div className="bg-white rounded-2xl border border-amber-200 p-6">
-              <CancellationFeeSection booking={booking} cancellation={cancellation} onUpdate={load} />
+          {inCancellationFlow && (
+            <div className="bg-white rounded-2xl border border-[#E8E1DA] p-6">
+              <p className="text-sm text-gray-600">
+                This booking was waiting on a cancellation fee. Cancel it below to finish. No fee is charged.
+              </p>
             </div>
           )}
 
@@ -209,17 +196,17 @@ export default function BookingDetail() {
             </div>
           )}
 
-          {!["cancelled", "completed", "cancellation_pending", "cancellation_submitted"].includes(booking.status) && (
+          {!["cancelled", "completed"].includes(booking.status) && (
             <div className="text-center">
               <button type="button" onClick={handleCancel} className="text-red-500 text-sm hover:underline">
-                {booking.status === "confirmed" ? "Request cancellation" : "Cancel booking"}
+                Cancel booking
               </button>
             </div>
           )}
 
           {booking.status === "cancelled" && (
             <div className="text-center space-y-2">
-              <p className="text-sm text-gray-500">This booking has been cancelled. No refund applies.</p>
+              <p className="text-sm text-gray-500">This booking has been cancelled.</p>
               {booking.notes && (
                 <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3 max-w-md mx-auto">
                   <span className="font-medium">Studio reason:</span> {booking.notes}
@@ -233,13 +220,9 @@ export default function BookingDetail() {
       {cancelOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#5B4636]/40 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-2xl border border-[#E8E1DA] shadow-2xl p-6">
-            <h2 className="heading-serif text-2xl font-bold text-[#5B4636]">
-              {booking.status === "confirmed" ? "Request cancellation" : "Cancel this booking"}
-            </h2>
+            <h2 className="heading-serif text-2xl font-bold text-[#5B4636]">Cancel this booking</h2>
             <p className="text-sm text-gray-500 mt-2">
-              {booking.status === "confirmed"
-                ? `A non-refundable cancellation fee of ₱${CANCELLATION_FEE.toLocaleString()} applies. Your booking stays active until you pay and the studio verifies it.`
-                : "This booking is not confirmed yet, so no cancellation fee applies."}
+              The session is cancelled right away and the time is released. There is no cancellation fee.
             </p>
             <label className="block text-sm font-medium text-[#5B4636] mt-5 mb-2">Reason</label>
             <select
@@ -274,7 +257,7 @@ export default function BookingDetail() {
                 disabled={cancelling || (reasonChoice === "Others" && !otherReason.trim())}
                 className="flex-1 py-3 rounded-xl bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
               >
-                {cancelling ? "Saving..." : booking.status === "confirmed" ? "Continue" : "Cancel booking"}
+                {cancelling ? "Saving..." : "Cancel booking"}
               </button>
             </div>
           </div>

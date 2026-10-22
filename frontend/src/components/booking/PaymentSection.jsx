@@ -70,6 +70,18 @@ export default function PaymentSection({ booking, onUpdate }) {
 
     if (flag !== "success") return;
 
+    if (purpose === "cancellation") {
+      Swal.fire({
+        icon: "info",
+        title: "No cancellation fee",
+        text: "Cancellation fees are no longer charged. Cancel the booking from this page.",
+        timer: 3200,
+        showConfirmButton: false,
+      });
+      clean();
+      return;
+    }
+
     let cancelled = false;
     setSyncing(true);
     (async () => {
@@ -79,11 +91,8 @@ export default function PaymentSection({ booking, onUpdate }) {
         if (result?.paid || result?.already_paid) {
           Swal.fire({
             icon: "success",
-            title: purpose === "cancellation" ? "Cancellation fee received" : "Payment received",
-            text:
-              purpose === "cancellation"
-                ? "Your ₱100 cancellation fee was received. Upload the receipt below so the studio can see it."
-                : "Payment received. Upload the screenshot below so the studio can verify it.",
+            title: "Payment received",
+            text: "Payment received. Upload the screenshot below so the studio can verify it.",
             timer: 2800,
             showConfirmButton: false,
           });

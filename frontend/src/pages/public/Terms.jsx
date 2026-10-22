@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import BrandLogo from "../../components/ui/BrandLogo";
-import { STUDIO_PHONE_DISPLAY, STUDIO_EMAIL, CANCELLATION_FEE } from "../../lib/constants";
+import { STUDIO_PHONE_DISPLAY, STUDIO_EMAIL } from "../../lib/constants";
 
 const SECTIONS = [
   {
@@ -25,7 +25,7 @@ const SECTIONS = [
   },
   {
     title: "5. Cancellations and Rescheduling",
-    body: `Cancellations and rescheduling are allowed through the client portal or by contacting the studio. Once your booking is approved, a non-refundable cancellation fee of ₱${CANCELLATION_FEE} applies if you cancel. Rescheduling is handled by the studio based on availability. Confirmed bookings remain active until a cancellation is approved.`,
+    body: "Cancellations and rescheduling are allowed through the client portal or by contacting the studio. There is no cancellation fee. Cancelling releases the session. Rescheduling is handled by the studio based on availability. If you already paid, you can request a refund from the booking page. The studio returns an approved refund manually, and that approval cancels the booking.",
   },
   {
     title: "6. Late Arrival Policy",

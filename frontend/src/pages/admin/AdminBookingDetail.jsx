@@ -6,7 +6,8 @@ import Swal from "sweetalert2";
 import { downloadBookingQr } from "../../lib/bookingReceipt";
 import AdminLayout from "../../components/layout/AdminLayout";
 import ConfirmModal from "../../components/ui/ConfirmModal";
-import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking, confirmPaidBooking, disapprovePaidBooking } from "../../services/bookings";
+import { getBooking, updateBooking, markBookingAsRead, deleteBooking, rejectBooking, rescheduleBooking, confirmPaidBooking, disapprovePaidBooking, cancelBookingForRefund } from "../../services/bookings";
+import { getRefundForBooking } from "../../services/refunds";
 import { getTimeSlots } from "../../services/settings";
 import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
@@ -50,6 +51,11 @@ export default function AdminBookingDetail() {
     setError(null);
     getBooking(id)
       .then(async (data) => {
+        const refund = await getRefundForBooking(id).catch(() => null);
+        if (refund?.status === "refunded" && data.status !== "cancelled") {
+          await cancelBookingForRefund(id);
+          data = await getBooking(id);
+        }
         setBooking(data);
         if (data.status === "payment_submitted" && !data.admin_read_at) {
           await markBookingAsRead(id);

@@ -56,30 +56,6 @@ export async function getCancellations() {
   return data || [];
 }
 
-export async function updateCancellation(id, updates) {
-  const { data, error } = await supabase.from("cancellations").update(updates).eq("id", id).select().single();
-  if (error) throw error;
-  return data;
-}
-
-export async function verifyCancellationFee(id, approved, notes = "") {
-  const updates = {
-    fee_status: approved ? "verified" : "rejected",
-    fee_admin_notes: notes,
-    fee_verified_at: new Date().toISOString(),
-    refund_status: "na",
-  };
-  const cancellation = await updateCancellation(id, updates);
-  if (cancellation.booking_id) {
-    if (approved) {
-      await supabase.from("bookings").update({ status: "cancelled" }).eq("id", cancellation.booking_id);
-    } else {
-      await supabase.from("bookings").update({ status: "cancellation_pending" }).eq("id", cancellation.booking_id);
-    }
-  }
-  return cancellation;
-}
-
 export async function getFaqEntries() {
   const { data, error } = await supabase.from("faq_entries").select("*");
   if (error) throw error;

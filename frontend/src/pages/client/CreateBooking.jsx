@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { FaCheck } from "react-icons/fa";
+import { FaCheck, FaChevronDown } from "react-icons/fa";
 import ClientLayout from "../../components/layout/ClientLayout";
 import BookingDatePicker from "../../components/booking/BookingDatePicker";
 import BookingTimeSlotPicker from "../../components/booking/BookingTimeSlotPicker";
@@ -34,6 +34,24 @@ function formatLongDate(iso) {
   });
 }
 
+function PackageMark({ pkg }) {
+  if (pkg.category === "event") {
+    return (
+      <span className="shrink-0 rounded-full border border-[#E4D5C8] bg-[#F3EBE3] px-1.5 py-px text-[10px] font-semibold leading-4 tracking-wide text-[#7A5C45]">
+        Event
+      </span>
+    );
+  }
+  if (pkg.allows_walk_in) {
+    return (
+      <span className="shrink-0 rounded-full border border-sky-100 bg-sky-50 px-1.5 py-px text-[10px] font-semibold leading-4 tracking-wide text-sky-800">
+        Walk-in
+      </span>
+    );
+  }
+  return null;
+}
+
 export default function CreateBooking() {
   const { user, profile, isGuest } = useAuth();
   const navigate = useNavigate();
@@ -61,6 +79,8 @@ export default function CreateBooking() {
   });
   const [loading, setLoading] = useState(false);
   const [selectedAddons, setSelectedAddons] = useState([]);
+  const [packageMenuOpen, setPackageMenuOpen] = useState(false);
+  const packageMenuRef = useRef(null);
 
   const selectedDate = watch("event_date");
   const selectedTimeSlot = watch("time_slot");
@@ -151,6 +171,22 @@ export default function CreateBooking() {
       setValue("package_id", "", { shouldValidate: true });
     }
   }, [isGuest, modeFromUrl, selectablePackages, selectedPackageId, setValue]);
+
+  useEffect(() => {
+    if (!packageMenuOpen) return undefined;
+    const onPointer = (event) => {
+      if (!packageMenuRef.current?.contains(event.target)) setPackageMenuOpen(false);
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") setPackageMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [packageMenuOpen]);
 
   useEffect(() => {
     if (isEventCoverage) return;
@@ -349,20 +385,69 @@ export default function CreateBooking() {
                 </p>
               </div>
             ) : (
-              <div>
-                <label className="block mb-2 text-sm font-medium text-gray-700">Select package</label>
-                <select
-                  {...register("package_id", { required: "Select a package" })}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:border-[#A98B75] outline-none"
+              <div ref={packageMenuRef} className="relative">
+                <label id="package-picker-label" className="block mb-2 text-sm font-medium text-gray-700">Select package</label>
+                <input type="hidden" {...register("package_id", { required: "Select a package" })} />
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={packageMenuOpen}
+                  aria-labelledby="package-picker-label"
+                  onClick={() => setPackageMenuOpen((open) => !open)}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3 text-left outline-none transition hover:border-[#A98B75] ${
+                    errors.package_id ? "border-red-400" : "border-[#E8E1DA]"
+                  }`}
                 >
-                  <option value="">Select Package</option>
-                  {selectablePackages.map((pkg) => (
-                    <option key={pkg.id} value={pkg.id}>
-                      {pkg.name} — ₱{Number(pkg.price).toLocaleString()}
-                      {pkg.category === "event" ? " · Event coverage" : pkg.allows_walk_in ? " · Walk-in OK" : ""}
-                    </option>
-                  ))}
-                </select>
+                  {selectedPackage ? (
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="truncate font-medium text-[#5B4636]">{selectedPackage.name}</span>
+                      <PackageMark pkg={selectedPackage} />
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">Select a package</span>
+                  )}
+                  <span className="flex shrink-0 items-center gap-3">
+                    {selectedPackage && (
+                      <span className="text-sm font-semibold tabular-nums text-[#5B4636]">
+                        ₱{Number(selectedPackage.price).toLocaleString()}
+                      </span>
+                    )}
+                    <FaChevronDown className={`text-xs text-[#A98B75] transition ${packageMenuOpen ? "rotate-180" : ""}`} />
+                  </span>
+                </button>
+                {packageMenuOpen && (
+                  <ul
+                    role="listbox"
+                    aria-labelledby="package-picker-label"
+                    className="absolute z-30 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-[#E8E1DA] bg-white py-1 shadow-lg"
+                  >
+                    {selectablePackages.map((pkg) => {
+                      const selected = pkg.id === selectedPackageId;
+                      return (
+                        <li key={pkg.id} role="option" aria-selected={selected}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setValue("package_id", pkg.id, { shouldValidate: true });
+                              setPackageMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${
+                              selected ? "bg-[#A98B75]/10" : "hover:bg-[#F8F6F3]"
+                            }`}
+                          >
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              <span className="truncate text-sm font-medium text-[#5B4636]">{pkg.name}</span>
+                              <PackageMark pkg={pkg} />
+                            </span>
+                            <span className="shrink-0 text-sm tabular-nums text-[#8A7568]">
+                              ₱{Number(pkg.price).toLocaleString()}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
                 {errors.package_id && <p className="text-red-500 text-xs mt-1">{errors.package_id.message}</p>}
               </div>
             )}
