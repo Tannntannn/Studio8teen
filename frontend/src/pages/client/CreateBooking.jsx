@@ -21,6 +21,7 @@ import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { localDateISO } from "../../lib/dateUtils";
 import { RESERVATION_FEE } from "../../lib/constants";
+import { mobilizationLabel, mobilizationTotal } from "../../lib/mobilization";
 import Swal from "sweetalert2";
 import { updateProfile } from "../../services/profiles";
 
@@ -108,7 +109,11 @@ export default function CreateBooking() {
     const addon = ADDONS_CATALOG.find((a) => a.name === id);
     return sum + (addon?.price || 0);
   }, 0);
-  const grandTotal = basePrice + addonsTotal;
+  const packageMobilizations = isEventCoverage && Array.isArray(selectedPackage?.mobilizations)
+    ? selectedPackage.mobilizations
+    : [];
+  const mobilizationFee = mobilizationTotal(packageMobilizations);
+  const grandTotal = basePrice + addonsTotal + mobilizationFee;
   const inclusions = Array.isArray(selectedPackage?.features) ? selectedPackage.features : [];
 
   const availabilityByDate = groupAvailabilityByDate(monthAvailability);
@@ -761,6 +766,17 @@ export default function CreateBooking() {
                   </div>
                 );
               })}
+              {packageMobilizations.map((item) => (
+                <div key={item.id} className="flex justify-between opacity-80">
+                  <span>{mobilizationLabel(item.id)}</span>
+                  <span>₱{Number(item.price || 0).toLocaleString()}</span>
+                </div>
+              ))}
+              {isEventCoverage && !packageMobilizations.length && (
+                <p className="text-xs text-amber-100/90">
+                  This event package has no mobilization fee yet. The studio can add one on the package before you pay.
+                </p>
+              )}
               <div className="flex justify-between text-amber-100">
                 <span>Reservation fee</span>
                 <span>₱{RESERVATION_FEE.toLocaleString()}</span>

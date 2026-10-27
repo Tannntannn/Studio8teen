@@ -5,6 +5,7 @@ import { uploadToCloudinary, CLOUDINARY_FOLDERS } from "../../lib/cloudinary";
 import { updateBooking } from "../../services/bookings";
 import { getStudioSettings } from "../../services/settings";
 import { RESERVATION_FEE } from "../../lib/constants";
+import { mobilizationLabel, mobilizationTotal } from "../../lib/mobilization";
 import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
 
@@ -124,7 +125,11 @@ export default function PaymentSection({ booking, onUpdate }) {
 
   const packagePrice = Number(booking.packages?.price || 0);
   const addonsTotal = Number(booking.addons_total || 0);
-  const grandTotal = packagePrice + addonsTotal;
+  const mobilizationItems = Array.isArray(booking.mobilization_items) ? booking.mobilization_items : [];
+  const mobilizationFee = mobilizationItems.length
+    ? mobilizationTotal(mobilizationItems)
+    : Number(booking.mobilization_fee || 0);
+  const grandTotal = packagePrice + addonsTotal + mobilizationFee;
   const downPercent = settings?.downpayment_percent || 50;
   const sessionAmount =
     paymentType === "full" ? grandTotal : Math.round((grandTotal * downPercent) / 100);
@@ -468,6 +473,17 @@ export default function PaymentSection({ booking, onUpdate }) {
           <div className="flex justify-between">
             <span>Add-ons</span>
             <span>₱{addonsTotal.toLocaleString()} PHP</span>
+          </div>
+        )}
+        {mobilizationItems.length > 0 ? mobilizationItems.map((item) => (
+          <div key={item.id} className="flex justify-between">
+            <span>{mobilizationLabel(item.id)}</span>
+            <span>₱{Number(item.price || 0).toLocaleString()} PHP</span>
+          </div>
+        )) : mobilizationFee > 0 && (
+          <div className="flex justify-between">
+            <span>Mobilization fee</span>
+            <span>₱{mobilizationFee.toLocaleString()} PHP</span>
           </div>
         )}
         <div className="flex justify-between border-t border-[#E8E1DA] pt-2">

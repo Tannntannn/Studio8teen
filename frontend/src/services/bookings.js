@@ -73,7 +73,7 @@ export async function getAllBookings() {
   await expireUnapprovedBookings();
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, packages(name, price), payments(*)")
+    .select("*, packages(name, price, category), payments(*)")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
@@ -84,7 +84,7 @@ export async function getBooking(id) {
   await expireUnapprovedBookings();
   const { data, error } = await supabase
     .from("bookings")
-    .select("*, packages(name, price, features), payments(*), mood_boards(*), cancellations(*)")
+    .select("*, packages(name, price, features, category, mobilizations), payments(*), mood_boards(*), cancellations(*)")
     .eq("id", id)
     .maybeSingle();
 

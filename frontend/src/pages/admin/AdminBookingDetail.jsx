@@ -13,6 +13,7 @@ import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 import { formatTime12h } from "../../lib/dateUtils";
 import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
+import { MOBILIZATION_TYPES, emptyMobilizationForm, mobilizationsToForm, enabledMobilizations, mobilizationTotal } from "../../lib/mobilization";
 import { supabase } from "../../lib/supabase";
 
 const STATUS_STYLES = {
@@ -33,6 +34,20 @@ function StatusBadge({ status }) {
   );
 }
 
+function needsMobilizationFee(booking) {
+  if (!booking) return false;
+  const location = String(booking.location || "").trim().toLowerCase();
+  const offStudio = Boolean(location) && location !== "studio 8teen";
+  const hasItems = Array.isArray(booking.mobilization_items) && booking.mobilization_items.length > 0;
+  return booking.packages?.category === "event" || offStudio || hasItems;
+}
+
+function mobilizationFeeLocked(booking) {
+  if (!booking) return true;
+  if (["confirmed", "completed", "cancelled"].includes(booking.status)) return true;
+  return (booking.payments || []).some((payment) => ["submitted", "verified"].includes(payment.status));
+}
+
 export default function AdminBookingDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -45,6 +60,8 @@ export default function AdminBookingDetail() {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [downloadingQr, setDownloadingQr] = useState(false);
+  const [feeChoices, setFeeChoices] = useState(emptyMobilizationForm);
+  const [savingFee, setSavingFee] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -57,6 +74,10 @@ export default function AdminBookingDetail() {
           data = await getBooking(id);
         }
         setBooking(data);
+        const savedItems = Array.isArray(data.mobilization_items) && data.mobilization_items.length
+          ? data.mobilization_items
+          : data.packages?.mobilizations;
+        setFeeChoices(mobilizationsToForm(savedItems));
         if (data.status === "payment_submitted" && !data.admin_read_at) {
           await markBookingAsRead(id);
           setBooking((prev) => prev && { ...prev, admin_read_at: new Date().toISOString() });
@@ -69,6 +90,23 @@ export default function AdminBookingDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  const saveMobilizationFee = async () => {
+    const items = enabledMobilizations(feeChoices);
+    setSavingFee(true);
+    setError(null);
+    try {
+      await updateBooking(id, {
+        mobilization_items: items,
+        mobilization_fee: mobilizationTotal(items),
+      });
+      load();
+    } catch (err) {
+      setError(err.message || "Could not save the mobilization fee");
+    } finally {
+      setSavingFee(false);
+    }
+  };
 
   useEffect(() => {
     if (booking?.qr_token && ["confirmed", "completed"].includes(booking.status)) {
@@ -427,6 +465,77 @@ export default function AdminBookingDetail() {
                 <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
                   <dt className="text-gray-400">Package price</dt>
                   <dd className="font-semibold text-[#5B4636]">₱{Number(booking.packages?.price || 0).toLocaleString()}</dd>
+                </div>
+                {Number(booking.addons_total || 0) > 0 && (
+                  <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
+                    <dt className="text-gray-400">Add-ons</dt>
+                    <dd className="font-semibold text-[#5B4636]">₱{Number(booking.addons_total || 0).toLocaleString()}</dd>
+                  </div>
+                )}
+                {needsMobilizationFee(booking) && (
+                  <div className="pb-3 border-b border-[#F8F6F3] space-y-3">
+                    <dt className="text-gray-400">Mobilization</dt>
+                    {MOBILIZATION_TYPES.map((type) => {
+                      const row = feeChoices[type.id] || { enabled: false, price: "" };
+                      return (
+                        <div key={type.id} className="rounded-xl bg-[#F8F6F3] px-3 py-2">
+                          <label className="flex items-start gap-2 text-sm text-[#5B4636]">
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={row.enabled}
+                              disabled={mobilizationFeeLocked(booking) || savingFee}
+                              onChange={(e) => setFeeChoices((current) => ({
+                                ...current,
+                                [type.id]: { ...row, enabled: e.target.checked },
+                              }))}
+                            />
+                            <span>
+                              <span className="font-medium">{type.label}</span>
+                              <span className="block text-xs text-gray-500">{type.detail}</span>
+                            </span>
+                          </label>
+                          {row.enabled && (
+                            <input
+                              type="number"
+                              min="0"
+                              value={row.price}
+                              disabled={mobilizationFeeLocked(booking) || savingFee}
+                              onChange={(e) => setFeeChoices((current) => ({
+                                ...current,
+                                [type.id]: { ...row, price: e.target.value },
+                              }))}
+                              className="mt-2 ml-6 w-[calc(100%-1.5rem)] border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm outline-none focus:border-[#A98B75] disabled:bg-white"
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                    {mobilizationFeeLocked(booking) ? (
+                      <p className="text-xs text-gray-400">These choices are locked because payment has started or the booking is already confirmed. Edit the event package for future bookings.</p>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={saveMobilizationFee}
+                        disabled={savingFee}
+                        className="px-3 py-1.5 rounded-lg bg-[#5B4636] text-white text-xs disabled:opacity-50"
+                      >
+                        {savingFee ? "Saving..." : "Save mobilization"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
+                  <dt className="text-gray-400">Total bill</dt>
+                  <dd className="font-semibold text-[#5B4636]">
+                    ₱{(
+                      Number(booking.packages?.price || 0) +
+                      Number(booking.addons_total || 0) +
+                      (needsMobilizationFee(booking)
+                        ? mobilizationTotal(enabledMobilizations(feeChoices))
+                        : Number(booking.mobilization_fee || 0))
+                    ).toLocaleString()}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4 pb-3 border-b border-[#F8F6F3]">
                   <dt className="text-gray-400">Submitted</dt>

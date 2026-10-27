@@ -3,6 +3,7 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import { createPackage, deletePackage, getAllPackages, syncPackagesFromCatalog, updatePackage } from "../../services/packages";
 import { ADDONS_CATALOG, PACKAGES_CATALOG } from "../../data/packagesCatalog";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
+import { MOBILIZATION_TYPES, emptyMobilizationForm, mobilizationsToForm, formToMobilizations, mobilizationLabel } from "../../lib/mobilization";
 import Swal from "sweetalert2";
 
 const CATEGORY_LABELS = {
@@ -23,6 +24,7 @@ const EMPTY_FORM = {
   is_active: true,
   image_url: "",
   image_public_id: "",
+  mobilizations: emptyMobilizationForm(),
 };
 
 export default function AdminPackages() {
@@ -120,6 +122,7 @@ export default function AdminPackages() {
       is_active: Boolean(pkg.is_active),
       image_url: pkg.image_url || "",
       image_public_id: pkg.image_public_id || "",
+      mobilizations: mobilizationsToForm(pkg.mobilizations),
     });
   };
 
@@ -141,6 +144,7 @@ export default function AdminPackages() {
       is_active: form.is_active,
       image_url: form.image_url || null,
       image_public_id: form.image_public_id || null,
+      mobilizations: formToMobilizations(form.mobilizations, form.category),
     };
     try {
       if (editingId) {
@@ -291,6 +295,59 @@ export default function AdminPackages() {
                     className="mt-1 w-full border border-[#E8E1DA] rounded-xl px-3 py-2.5 text-sm min-h-[110px] outline-none focus:border-[#A98B75]"
                   />
                 </label>
+                {form.category === "event" && (
+                  <div className="rounded-xl border border-[#E8E1DA] p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-[#5B4636]">Mobilization</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Turn on the types this event package includes and set each price. New bookings copy these amounts.
+                      </p>
+                    </div>
+                    {MOBILIZATION_TYPES.map((type) => {
+                      const row = form.mobilizations[type.id] || { enabled: false, price: "" };
+                      return (
+                        <div key={type.id} className="rounded-xl bg-[#F8F6F3] px-3 py-3">
+                          <label className="flex items-start gap-2 text-sm text-[#5B4636]">
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={row.enabled}
+                              onChange={(e) => setForm((current) => ({
+                                ...current,
+                                mobilizations: {
+                                  ...current.mobilizations,
+                                  [type.id]: { ...row, enabled: e.target.checked },
+                                },
+                              }))}
+                            />
+                            <span>
+                              <span className="font-medium">{type.label}</span>
+                              <span className="block text-xs text-gray-500 mt-0.5">{type.detail}</span>
+                            </span>
+                          </label>
+                          {row.enabled && (
+                            <label className="block text-xs text-gray-500 mt-2 ml-6">
+                              Price (₱)
+                              <input
+                                type="number"
+                                min="0"
+                                value={row.price}
+                                onChange={(e) => setForm((current) => ({
+                                  ...current,
+                                  mobilizations: {
+                                    ...current.mobilizations,
+                                    [type.id]: { ...row, price: e.target.value },
+                                  },
+                                }))}
+                                className="mt-1 w-full border border-[#E8E1DA] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
+                              />
+                            </label>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div>
                   <p className="text-sm text-[#5B4636] mb-2">Package photo</p>
                   <div className="flex flex-wrap items-center gap-4">
@@ -442,6 +499,9 @@ export default function AdminPackages() {
                 <ul className="text-xs text-gray-600 space-y-1 mb-4">
                   {(Array.isArray(pkg.features) ? pkg.features : []).map((f, i) => (
                     <li key={i}>• {f}</li>
+                  ))}
+                  {(Array.isArray(pkg.mobilizations) ? pkg.mobilizations : []).map((item) => (
+                    <li key={item.id}>• {mobilizationLabel(item.id)} · ₱{Number(item.price || 0).toLocaleString()}</li>
                   ))}
                 </ul>
                 <div className="flex flex-wrap gap-3 items-center">
