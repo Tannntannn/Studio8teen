@@ -768,7 +768,7 @@ export default function CreateBooking() {
               })}
               {packageMobilizations.map((item) => (
                 <div key={item.id} className="flex justify-between opacity-80">
-                  <span>{mobilizationLabel(item.id)}</span>
+                  <span>{mobilizationLabel(item)}</span>
                   <span>₱{Number(item.price || 0).toLocaleString()}</span>
                 </div>
               ))}

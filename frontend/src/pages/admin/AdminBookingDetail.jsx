@@ -13,7 +13,8 @@ import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 import { formatTime12h } from "../../lib/dateUtils";
 import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
-import { MOBILIZATION_TYPES, emptyMobilizationForm, mobilizationsToForm, enabledMobilizations, mobilizationTotal } from "../../lib/mobilization";
+import { emptyMobilizationForm, mobilizationsToForm, enabledMobilizations, mobilizationTotal, mobilizationFormError } from "../../lib/mobilization";
+import MobilizationFields from "../../components/admin/MobilizationFields";
 import { supabase } from "../../lib/supabase";
 
 const STATUS_STYLES = {
@@ -92,6 +93,11 @@ export default function AdminBookingDetail() {
   }, [id]);
 
   const saveMobilizationFee = async () => {
+    const mobilizationError = mobilizationFormError(feeChoices);
+    if (mobilizationError) {
+      setError(mobilizationError);
+      return;
+    }
     const items = enabledMobilizations(feeChoices);
     setSavingFee(true);
     setError(null);
@@ -474,43 +480,12 @@ export default function AdminBookingDetail() {
                 )}
                 {needsMobilizationFee(booking) && (
                   <div className="pb-3 border-b border-[#F8F6F3] space-y-3">
-                    <dt className="text-gray-400">Mobilization</dt>
-                    {MOBILIZATION_TYPES.map((type) => {
-                      const row = feeChoices[type.id] || { enabled: false, price: "" };
-                      return (
-                        <div key={type.id} className="rounded-xl bg-[#F8F6F3] px-3 py-2">
-                          <label className="flex items-start gap-2 text-sm text-[#5B4636]">
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              checked={row.enabled}
-                              disabled={mobilizationFeeLocked(booking) || savingFee}
-                              onChange={(e) => setFeeChoices((current) => ({
-                                ...current,
-                                [type.id]: { ...row, enabled: e.target.checked },
-                              }))}
-                            />
-                            <span>
-                              <span className="font-medium">{type.label}</span>
-                              <span className="block text-xs text-gray-500">{type.detail}</span>
-                            </span>
-                          </label>
-                          {row.enabled && (
-                            <input
-                              type="number"
-                              min="0"
-                              value={row.price}
-                              disabled={mobilizationFeeLocked(booking) || savingFee}
-                              onChange={(e) => setFeeChoices((current) => ({
-                                ...current,
-                                [type.id]: { ...row, price: e.target.value },
-                              }))}
-                              className="mt-2 ml-6 w-[calc(100%-1.5rem)] border border-[#E8E1DA] rounded-lg px-2 py-1.5 text-sm outline-none focus:border-[#A98B75] disabled:bg-white"
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                    <MobilizationFields
+                      value={feeChoices}
+                      disabled={mobilizationFeeLocked(booking) || savingFee}
+                      onChange={setFeeChoices}
+                      hint="Add a standard type or your own, then set the fee for this booking."
+                    />
                     {mobilizationFeeLocked(booking) ? (
                       <p className="text-xs text-gray-400">These choices are locked because payment has started or the booking is already confirmed. Edit the event package for future bookings.</p>
                     ) : (

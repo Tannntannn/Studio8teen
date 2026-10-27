@@ -3,7 +3,8 @@ import AdminLayout from "../../components/layout/AdminLayout";
 import { createPackage, deletePackage, getAllPackages, syncPackagesFromCatalog, updatePackage } from "../../services/packages";
 import { ADDONS_CATALOG, PACKAGES_CATALOG } from "../../data/packagesCatalog";
 import { uploadToCloudinary, CLOUDINARY_FOLDERS, getThumbnailUrl } from "../../lib/cloudinary";
-import { MOBILIZATION_TYPES, emptyMobilizationForm, mobilizationsToForm, formToMobilizations, mobilizationLabel } from "../../lib/mobilization";
+import { emptyMobilizationForm, mobilizationsToForm, formToMobilizations, mobilizationLabel, mobilizationFormError } from "../../lib/mobilization";
+import MobilizationFields from "../../components/admin/MobilizationFields";
 import Swal from "sweetalert2";
 
 const CATEGORY_LABELS = {
@@ -129,6 +130,11 @@ export default function AdminPackages() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name.trim() || form.price === "") return;
+    const mobilizationError = mobilizationFormError(form.mobilizations);
+    if (mobilizationError) {
+      Swal.fire({ icon: "warning", title: mobilizationError });
+      return;
+    }
     setSaving(true);
     const payload = {
       name: form.name.trim(),
@@ -296,57 +302,10 @@ export default function AdminPackages() {
                   />
                 </label>
                 {form.category === "event" && (
-                  <div className="rounded-xl border border-[#E8E1DA] p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-[#5B4636]">Mobilization</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Turn on the types this event package includes and set each price. New bookings copy these amounts.
-                      </p>
-                    </div>
-                    {MOBILIZATION_TYPES.map((type) => {
-                      const row = form.mobilizations[type.id] || { enabled: false, price: "" };
-                      return (
-                        <div key={type.id} className="rounded-xl bg-[#F8F6F3] px-3 py-3">
-                          <label className="flex items-start gap-2 text-sm text-[#5B4636]">
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              checked={row.enabled}
-                              onChange={(e) => setForm((current) => ({
-                                ...current,
-                                mobilizations: {
-                                  ...current.mobilizations,
-                                  [type.id]: { ...row, enabled: e.target.checked },
-                                },
-                              }))}
-                            />
-                            <span>
-                              <span className="font-medium">{type.label}</span>
-                              <span className="block text-xs text-gray-500 mt-0.5">{type.detail}</span>
-                            </span>
-                          </label>
-                          {row.enabled && (
-                            <label className="block text-xs text-gray-500 mt-2 ml-6">
-                              Price (₱)
-                              <input
-                                type="number"
-                                min="0"
-                                value={row.price}
-                                onChange={(e) => setForm((current) => ({
-                                  ...current,
-                                  mobilizations: {
-                                    ...current.mobilizations,
-                                    [type.id]: { ...row, price: e.target.value },
-                                  },
-                                }))}
-                                className="mt-1 w-full border border-[#E8E1DA] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white"
-                              />
-                            </label>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <MobilizationFields
+                    value={form.mobilizations}
+                    onChange={(mobilizations) => setForm((current) => ({ ...current, mobilizations }))}
+                  />
                 )}
                 <div>
                   <p className="text-sm text-[#5B4636] mb-2">Package photo</p>
@@ -501,7 +460,7 @@ export default function AdminPackages() {
                     <li key={i}>• {f}</li>
                   ))}
                   {(Array.isArray(pkg.mobilizations) ? pkg.mobilizations : []).map((item) => (
-                    <li key={item.id}>• {mobilizationLabel(item.id)} · ₱{Number(item.price || 0).toLocaleString()}</li>
+                    <li key={item.id}>• {mobilizationLabel(item)} · ₱{Number(item.price || 0).toLocaleString()}</li>
                   ))}
                 </ul>
                 <div className="flex flex-wrap gap-3 items-center">

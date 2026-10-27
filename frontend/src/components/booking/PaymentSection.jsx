@@ -477,7 +477,7 @@ export default function PaymentSection({ booking, onUpdate }) {
         )}
         {mobilizationItems.length > 0 ? mobilizationItems.map((item) => (
           <div key={item.id} className="flex justify-between">
-            <span>{mobilizationLabel(item.id)}</span>
+            <span>{mobilizationLabel(item)}</span>
             <span>₱{Number(item.price || 0).toLocaleString()} PHP</span>
           </div>
         )) : mobilizationFee > 0 && (
