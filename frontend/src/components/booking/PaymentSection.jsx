@@ -5,7 +5,7 @@ import { uploadToCloudinary, CLOUDINARY_FOLDERS } from "../../lib/cloudinary";
 import { updateBooking } from "../../services/bookings";
 import { getStudioSettings } from "../../services/settings";
 import { RESERVATION_FEE } from "../../lib/constants";
-import { mobilizationLabel, mobilizationTotal } from "../../lib/mobilization";
+import { mobilizationLabel, mobilizationTotal, chargedMobilizations } from "../../lib/mobilization";
 import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
 
@@ -125,7 +125,7 @@ export default function PaymentSection({ booking, onUpdate }) {
 
   const packagePrice = Number(booking.packages?.price || 0);
   const addonsTotal = Number(booking.addons_total || 0);
-  const mobilizationItems = Array.isArray(booking.mobilization_items) ? booking.mobilization_items : [];
+  const mobilizationItems = chargedMobilizations(booking.mobilization_items);
   const mobilizationFee = mobilizationItems.length
     ? mobilizationTotal(mobilizationItems)
     : Number(booking.mobilization_fee || 0);

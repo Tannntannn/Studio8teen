@@ -460,7 +460,9 @@ export default function AdminPackages() {
                     <li key={i}>• {f}</li>
                   ))}
                   {(Array.isArray(pkg.mobilizations) ? pkg.mobilizations : []).map((item) => (
-                    <li key={item.id}>• {mobilizationLabel(item)} · ₱{Number(item.price || 0).toLocaleString()}</li>
+                    <li key={item.id}>
+                      • {mobilizationLabel(item)} · {item.enabled === false ? "Off" : `₱${Number(item.price || 0).toLocaleString()}`}
+                    </li>
                   ))}
                 </ul>
                 <div className="flex flex-wrap gap-3 items-center">

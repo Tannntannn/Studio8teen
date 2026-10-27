@@ -26,7 +26,7 @@ export default function MobilizationFields({ value, onChange, disabled = false, 
       <div>
         <p className="text-sm font-medium text-[#5B4636]">Mobilization</p>
         <p className="text-xs text-gray-500 mt-1">
-          {hint || "Turn on a standard type or add your own, then set the fee. New bookings copy these amounts."}
+          {hint || "Check a type to include its fee. Add your own option, then check or uncheck it. Remove deletes a custom option."}
         </p>
       </div>
       {MOBILIZATION_TYPES.map((type) => {
@@ -64,8 +64,17 @@ export default function MobilizationFields({ value, onChange, disabled = false, 
       })}
       {custom.map((row, index) => (
         <div key={row.id || index} className="rounded-xl bg-[#F8F6F3] px-3 py-3 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-[#5B4636]">Custom option</p>
+          <div className="flex items-start justify-between gap-3">
+            <label className="flex items-start gap-2 text-sm text-[#5B4636]">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={row.enabled !== false}
+                disabled={disabled}
+                onChange={(event) => setCustom(index, { enabled: event.target.checked })}
+              />
+              <span className="font-medium">Custom option</span>
+            </label>
             {!disabled && (
               <button
                 type="button"
@@ -80,7 +89,7 @@ export default function MobilizationFields({ value, onChange, disabled = false, 
               </button>
             )}
           </div>
-          <label className="block text-xs text-gray-500">
+          <label className="block text-xs text-gray-500 ml-6">
             Name
             <input
               type="text"
@@ -92,7 +101,7 @@ export default function MobilizationFields({ value, onChange, disabled = false, 
               className="mt-1 w-full border border-[#E8E1DA] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#A98B75] bg-white disabled:bg-white"
             />
           </label>
-          <label className="block text-xs text-gray-500">
+          <label className="block text-xs text-gray-500 ml-6">
             Fee (₱)
             <input
               type="number"
@@ -111,7 +120,7 @@ export default function MobilizationFields({ value, onChange, disabled = false, 
           onClick={() => onChange({
             ...value,
             presets,
-            custom: [...custom, { id: newCustomMobilizationId(), label: "", price: "" }],
+            custom: [...custom, { id: newCustomMobilizationId(), label: "", price: "", enabled: true }],
           })}
           className="text-sm text-[#5B4636] underline"
         >

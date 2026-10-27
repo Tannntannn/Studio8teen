@@ -13,7 +13,7 @@ import { verifyPayment, rejectPayment } from "../../services/payments";
 import { useAuth } from "../../context/AuthContext";
 import { formatTime12h } from "../../lib/dateUtils";
 import { DEFAULT_TIME_SLOTS } from "../../lib/constants";
-import { emptyMobilizationForm, mobilizationsToForm, enabledMobilizations, mobilizationTotal, mobilizationFormError } from "../../lib/mobilization";
+import { emptyMobilizationForm, bookingMobilizationForm, storedMobilizations, enabledMobilizations, mobilizationTotal, mobilizationFormError } from "../../lib/mobilization";
 import MobilizationFields from "../../components/admin/MobilizationFields";
 import { supabase } from "../../lib/supabase";
 
@@ -75,10 +75,7 @@ export default function AdminBookingDetail() {
           data = await getBooking(id);
         }
         setBooking(data);
-        const savedItems = Array.isArray(data.mobilization_items) && data.mobilization_items.length
-          ? data.mobilization_items
-          : data.packages?.mobilizations;
-        setFeeChoices(mobilizationsToForm(savedItems));
+        setFeeChoices(bookingMobilizationForm(data.packages?.mobilizations, data.mobilization_items));
         if (data.status === "payment_submitted" && !data.admin_read_at) {
           await markBookingAsRead(id);
           setBooking((prev) => prev && { ...prev, admin_read_at: new Date().toISOString() });
@@ -98,13 +95,13 @@ export default function AdminBookingDetail() {
       setError(mobilizationError);
       return;
     }
-    const items = enabledMobilizations(feeChoices);
+    const items = storedMobilizations(feeChoices);
     setSavingFee(true);
     setError(null);
     try {
       await updateBooking(id, {
         mobilization_items: items,
-        mobilization_fee: mobilizationTotal(items),
+        mobilization_fee: mobilizationTotal(enabledMobilizations(feeChoices)),
       });
       load();
     } catch (err) {
@@ -484,7 +481,7 @@ export default function AdminBookingDetail() {
                       value={feeChoices}
                       disabled={mobilizationFeeLocked(booking) || savingFee}
                       onChange={setFeeChoices}
-                      hint="Add a standard type or your own, then set the fee for this booking."
+                      hint="Check a fee to include it on this booking. Uncheck to leave it off. Add or remove a custom option here too."
                     />
                     {mobilizationFeeLocked(booking) ? (
                       <p className="text-xs text-gray-400">These choices are locked because payment has started or the booking is already confirmed. Edit the event package for future bookings.</p>

@@ -53,12 +53,13 @@ export function mobilizationsToForm(value) {
       id: /^custom_[A-Za-z0-9]{8,64}$/.test(id) ? id : newCustomMobilizationId(),
       label,
       price: row.price ?? "",
+      enabled: row.enabled !== false,
     });
   });
   return form;
 }
 
-export function enabledMobilizations(form) {
+export function storedMobilizations(form) {
   const presets = MOBILIZATION_TYPES
     .filter((type) => form?.presets?.[type.id]?.enabled)
     .map((type) => ({
@@ -70,9 +71,18 @@ export function enabledMobilizations(form) {
       id: /^custom_[A-Za-z0-9]{8,64}$/.test(String(row.id || "")) ? row.id : newCustomMobilizationId(),
       label: String(row.label || "").trim(),
       price: Math.max(0, Number(row.price || 0) || 0),
+      enabled: row.enabled !== false,
     }))
     .filter((row) => row.label.length >= 2);
   return [...presets, ...custom];
+}
+
+export function enabledMobilizations(form) {
+  return storedMobilizations(form).filter((item) => item.enabled !== false);
+}
+
+export function chargedMobilizations(items) {
+  return (Array.isArray(items) ? items : []).filter((item) => item?.enabled !== false);
 }
 
 export function mobilizationFormError(form) {
@@ -85,9 +95,43 @@ export function mobilizationFormError(form) {
   return incomplete ? "Each custom mobilization needs a name." : "";
 }
 
+export function bookingMobilizationForm(packageItems, bookingItems) {
+  const catalog = mobilizationsToForm(packageItems);
+  const saved = Array.isArray(bookingItems) ? bookingItems : [];
+  if (!saved.length) return catalog;
+  const picked = Object.fromEntries(saved.map((item) => [item.id, item]));
+  const presets = Object.fromEntries(Object.entries(catalog.presets).map(([id, row]) => {
+    const item = picked[id];
+    if (!item) return [id, { ...row, enabled: false }];
+    return [id, { enabled: item.enabled !== false, price: item.price ?? row.price }];
+  }));
+  const custom = catalog.custom.map((row) => {
+    const item = picked[row.id];
+    if (!item) return { ...row, enabled: false };
+    return {
+      ...row,
+      label: String(item.label || row.label),
+      price: item.price ?? row.price,
+      enabled: item.enabled !== false,
+    };
+  });
+  saved.forEach((item) => {
+    if (presets[item.id] || custom.some((row) => row.id === item.id)) return;
+    const label = String(item.label || "").trim();
+    if (label.length < 2) return;
+    custom.push({
+      id: /^custom_[A-Za-z0-9]{8,64}$/.test(String(item.id || "")) ? item.id : newCustomMobilizationId(),
+      label,
+      price: item.price ?? "",
+      enabled: item.enabled !== false,
+    });
+  });
+  return { presets, custom };
+}
+
 export function formToMobilizations(form, category) {
   if (category !== "event") return [];
-  return enabledMobilizations(form);
+  return storedMobilizations(form);
 }
 
 export function mobilizationLabel(itemOrId) {

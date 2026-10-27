@@ -21,7 +21,7 @@ import { ADDONS_CATALOG } from "../../data/packagesCatalog";
 import { getThumbnailUrl } from "../../lib/cloudinary";
 import { localDateISO } from "../../lib/dateUtils";
 import { RESERVATION_FEE } from "../../lib/constants";
-import { mobilizationLabel, mobilizationTotal } from "../../lib/mobilization";
+import { mobilizationLabel, mobilizationTotal, chargedMobilizations } from "../../lib/mobilization";
 import Swal from "sweetalert2";
 import { updateProfile } from "../../services/profiles";
 
@@ -110,7 +110,7 @@ export default function CreateBooking() {
     return sum + (addon?.price || 0);
   }, 0);
   const packageMobilizations = isEventCoverage && Array.isArray(selectedPackage?.mobilizations)
-    ? selectedPackage.mobilizations
+    ? chargedMobilizations(selectedPackage.mobilizations)
     : [];
   const mobilizationFee = mobilizationTotal(packageMobilizations);
   const grandTotal = basePrice + addonsTotal + mobilizationFee;
